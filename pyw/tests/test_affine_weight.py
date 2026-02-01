@@ -295,7 +295,7 @@ class TestConversion:
     def test_from_sagemath_fundamental_weight(self):
         """Test conversion from SageMath affine Λ₁."""
         ala = AffineLieAlgebra(["A", 2, 1])
-        sage_Lambda = ala.fundamental_weights()
+        sage_Lambda = ala.fundamental_weights_sage()
 
         w = AffineWeight.from_sagemath(ala, sage_Lambda[1])
 
@@ -309,13 +309,13 @@ class TestConversion:
         Lambda_hat_1 = AffineWeight.affine_fundamental_weight(ala, 1)
         sage_w = Lambda_hat_1.to_sagemath()
 
-        sage_Lambda = ala.fundamental_weights()
+        sage_Lambda = ala.fundamental_weights_sage()
         assert sage_w == sage_Lambda[1]
 
     def test_roundtrip_conversion(self):
         """Test SageMath -> Di Francesco -> SageMath roundtrip."""
         ala = AffineLieAlgebra(["A", 2, 1])
-        sage_Lambda = ala.fundamental_weights()
+        sage_Lambda = ala.fundamental_weights_sage()
         original = sage_Lambda[1] + sage_Lambda[2]
 
         w = AffineWeight.from_sagemath(ala, original)

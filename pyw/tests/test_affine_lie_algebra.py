@@ -115,14 +115,19 @@ class TestScalarProduct:
         Lambda = ala.fundamental_weights()
 
         # ̂λ = (Λ₁; 1; 0), ̂μ = (Λ₂; 1; 0)
-        # (̂λ, ̂μ) = (Λ₁, Λ₂) + 1*0 + 1*0 = -1/2
-        result = ala.affine_scalar_product(Lambda[1], 1, 0, Lambda[2], 1, 0)
-        assert result == QQ(-1, 2)
+        # (̂λ, ̂μ) = (Λ₁, Λ₂) + 1*0 + 1*0 = (Λ₁, Λ₂) = 1/3
+        result = ala.scalar_product(Lambda[1], Lambda[2])
+        assert result == QQ(1) / QQ(3)
 
         # ̂λ = (0; 1; 0), ̂μ = (0; 1; 1)
         # (̂λ, ̂μ) = (0, 0) + 1*1 + 1*0 = 1
-        zero = ala.weight_lattice().zero()
-        result = ala.affine_scalar_product(zero, 1, 0, zero, 1, 1)
+        from pyw.core.affine_weight import AffineWeight
+
+        finite_ws = ala._finite_root_system.weight_space()
+        zero = finite_ws.zero()
+        w1 = AffineWeight(ala, zero, level=1, grade=0)
+        w2 = AffineWeight(ala, zero, level=1, grade=1)
+        result = ala.scalar_product(w1, w2)
         assert result == QQ(1)
 
     def test_scalar_product_roots(self):
@@ -374,18 +379,25 @@ class TestDiFrancescoFormulas:
         Test Di Francesco Eq. (14.23): (̂λ, ̂μ) = (λ, μ) + k_λ n_μ + k_μ n_λ.
         """
         ala = AffineLieAlgebra(["A", 2, 1])
-        Lambda = ala.fundamental_weights()
+        from pyw.core.affine_weight import AffineWeight
 
-        # Test various combinations
+        finite_ws = ala._finite_root_system.weight_space()
+        Lambda = finite_ws.fundamental_weights()
+        zero = finite_ws.zero()
+
+        # Test various combinations using AffineWeight
         cases = [
             # (λ₁, k=1, n=0), (λ₂, k=1, n=0)
-            (Lambda[1], 1, 0, Lambda[2], 1, 0, QQ(-1, 2)),
+            # (Λ₁, Λ₂) = 1/3 for A₂
+            (Lambda[1], 1, 0, Lambda[2], 1, 0, QQ(1) / QQ(3)),
             # (0, k=1, n=0), (0, k=1, n=1)
-            (ala.weight_lattice().zero(), 1, 0, ala.weight_lattice().zero(), 1, 1, QQ(1)),
+            (zero, 1, 0, zero, 1, 1, QQ(1)),
         ]
 
         for lam, k_lam, n_lam, mu, k_mu, n_mu, expected in cases:
-            result = ala.affine_scalar_product(lam, k_lam, n_lam, mu, k_mu, n_mu)
+            w1 = AffineWeight(ala, lam, level=k_lam, grade=n_lam)
+            w2 = AffineWeight(ala, mu, level=k_mu, grade=n_mu)
+            result = ala.scalar_product(w1, w2)
             assert result == expected
 
     def test_reflection_formula_14_63(self):

@@ -367,55 +367,6 @@ class AffineLieAlgebra:
 
         return result
 
-    def affine_scalar_product(
-        self, lambda_finite, k_lambda, n_lambda, mu_finite, k_mu, n_mu
-    ) -> Any:
-        """
-        Compute the affine scalar product (̂λ, ̂μ).
-
-        Following Di Francesco Eq. (14.23):
-            (̂λ, ̂μ) = (λ, μ) + k_λ n_μ + k_μ n_λ
-
-        where ̂λ = (λ; k_λ; n_λ), ̂μ = (μ; k_μ; n_μ)
-
-        Parameters
-        ----------
-        lambda_finite : weight
-            Finite part of ̂λ
-        k_lambda : number
-            Level of ̂λ (k_λ = ̂λ(̂k))
-        n_lambda : number
-            L₀ eigenvalue of ̂λ (with sign convention -L₀)
-        mu_finite : weight
-            Finite part of ̂μ
-        k_mu : number
-            Level of ̂μ (k_μ = ̂μ(̂k))
-        n_mu : number
-            L₀ eigenvalue of ̂μ
-
-        Returns
-        -------
-        The affine scalar product (̂λ, ̂μ)
-
-        Examples
-        --------
-        >>> ala = AffineLieAlgebra(['A', 2, 1])
-        >>> Lambda = ala.fundamental_weights()
-        >>> # ̂λ = (Λ₁; 1; 0), ̂μ = (Λ₂; 1; 0)
-        >>> ala.affine_scalar_product(Lambda[1], 1, 0, Lambda[2], 1, 0)
-        -1/2
-
-        Notes
-        -----
-        Di Francesco Eq. (14.23): (̂λ, ̂μ) = (λ, μ) + k_λ n_μ + k_μ n_λ
-
-        Note: Di Francesco defines n_λ as ̂λ(-L₀), so our convention
-        matches his: ̂λ = (λ; k_λ; n_λ) means ̂λ(-L₀) = n_λ.
-        """
-        finite_part = self._finite_scalar_product(lambda_finite, mu_finite)
-        cross_terms = k_lambda * n_mu + k_mu * n_lambda
-        return finite_part + cross_terms
-
     # ==========================================================================
     # Weyl Reflections (Di Francesco §14.1.6)
     # ==========================================================================
@@ -881,7 +832,10 @@ class AffineLieAlgebra:
         if self._rho_hat is None:
             # For affine types, ρ̂ is sum of fundamental weights
             Lambda = self.fundamental_weights()
-            self._rho_hat = sum(Lambda.values())
+            weights = list(Lambda.values())
+            self._rho_hat = weights[0]
+            for w in weights[1:]:
+                self._rho_hat = self._rho_hat + w
         return self._rho_hat
 
     # ==========================================================================
@@ -908,9 +862,54 @@ class AffineLieAlgebra:
         """Get the ambient space (for scalar products)."""
         return self._ambient_space
 
-    def fundamental_weights(self, lattice: bool = False):
+    def fundamental_weights(self):
         """
-        Get the fundamental weights Λ_i.
+        Get the affine fundamental weights ω̂_i in Di Francesco notation.
+
+        For affine types, returns AffineWeight objects:
+        - ω̂₀ = (0; 1; 0) — basic fundamental weight
+        - ω̂_i = (ω_i; a_i^∨; 0) for i > 0
+
+        For finite types, returns SageMath weight space elements.
+
+        Returns
+        -------
+        dict
+            Dictionary mapping indices to AffineWeight objects (affine) or
+            SageMath weights (finite)
+
+        Examples
+        --------
+        >>> ala = AffineLieAlgebra(['A', 2, 1])
+        >>> Lambda = ala.fundamental_weights()
+        >>> Lambda[0]  # ω̂₀ = (0; 1; 0)
+        >>> Lambda[1]  # ω̂₁ = (Λ₁; 1; 0)
+        >>> Lambda[1] + Lambda[2]  # AffineWeight addition
+
+        Notes
+        -----
+        Di Francesco Eq. (14.47): ω̂_i = (ω_i; a_i^∨; 0)
+        Di Francesco Eq. (14.49): ω̂₀ = (0; 1; 0)
+
+        For SageMath native weights, use fundamental_weights_sage().
+        """
+        if self.is_affine:
+            from .affine_weight import AffineWeight
+
+            index_set = list(self._weight_lattice.index_set())
+            return {i: AffineWeight.affine_fundamental_weight(self, i) for i in index_set}
+        else:
+            # Finite type: return SageMath weights
+            ws = self._root_system.weight_space()
+            Lambda = ws.fundamental_weights()
+            return {i: Lambda[i] for i in self._weight_lattice.index_set()}
+
+    def fundamental_weights_sage(self, lattice: bool = False):
+        """
+        Get the fundamental weights as SageMath native objects.
+
+        This method provides direct access to SageMath's weight lattice/space
+        for compatibility with SageMath operations.
 
         Parameters
         ----------
@@ -920,26 +919,34 @@ class AffineLieAlgebra:
 
         Returns
         -------
-        dict mapping indices to fundamental weights
+        dict
+            Dictionary mapping indices to SageMath weight elements
 
         Examples
         --------
         >>> ala = AffineLieAlgebra(['A', 2, 1])
-        >>> Lambda = ala.fundamental_weights()
-        >>> Lambda[0]  # Basic fundamental weight ω̂₀ = (0; 1; 0)
-        >>> Lambda[1] / 3  # Rational coefficients supported
+        >>> Lambda = ala.fundamental_weights_sage()
+        >>> Lambda[1]  # SageMath affine weight Λ₁
+        >>> Lambda[1].monomial_coefficients()  # {1: 1}
+
+        Notes
+        -----
+        Use this method when you need to interact with SageMath's native
+        weight operations (e.g., Weyl group actions, character computations).
         """
         if lattice:
             Lambda = self._weight_lattice.fundamental_weights()
         else:
-            # Use weight space for rational coefficient support
             ws = self._root_system.weight_space()
             Lambda = ws.fundamental_weights()
         return {i: Lambda[i] for i in self._weight_lattice.index_set()}
 
     def simple_roots(self):
         """
-        Get the simple roots α_i.
+        Get the simple roots α_i in root space (supports rational coefficients).
+
+        Returns elements from root space instead of root lattice, enabling
+        division and rational coefficient operations.
 
         Returns
         -------
@@ -950,13 +957,20 @@ class AffineLieAlgebra:
         >>> ala = AffineLieAlgebra(['A', 2, 1])
         >>> alpha = ala.simple_roots()
         >>> alpha[0]  # α₀ = -θ + δ
+        >>> alpha[1] / 3  # Supports division
+        >>> alpha[1] * QQ(1/2)  # Supports rational multiplication
         """
-        alpha = self._root_lattice.simple_roots()
-        return {i: alpha[i] for i in self._root_lattice.index_set()}
+        # Use root space for rational coefficient support
+        rs = self._root_system.root_space()
+        alpha = rs.simple_roots()
+        return {i: alpha[i] for i in rs.index_set()}
 
     def simple_coroots(self):
         """
-        Get the simple coroots α_i^∨.
+        Get the simple coroots α_i^∨ in coroot space (supports rational coefficients).
+
+        Returns elements from coroot space instead of coroot lattice, enabling
+        division and rational coefficient operations.
 
         Returns
         -------
@@ -967,9 +981,12 @@ class AffineLieAlgebra:
         >>> ala = AffineLieAlgebra(['A', 2, 1])
         >>> alpha_vee = ala.simple_coroots()
         >>> alpha_vee[0]  # α₀^∨
+        >>> alpha_vee[1] / 2  # Supports division
         """
-        alpha_vee = self._coroot_lattice.simple_roots()
-        return {i: alpha_vee[i] for i in self._coroot_lattice.index_set()}
+        # Use coroot space for rational coefficient support
+        rs = self._root_system.coroot_space()
+        alpha_vee = rs.simple_roots()
+        return {i: alpha_vee[i] for i in rs.index_set()}
 
     def cartan_matrix(self):
         """Get the Cartan matrix."""
@@ -1116,10 +1133,12 @@ class AffineLieAlgebra:
         """
         Get affine fundamental weights in Di Francesco notation.
 
-        Returns ̂Λ_i = (Λ_i; a_i^∨; 0) for i = 0, 1, ..., r.
+        This is an alias for fundamental_weights() for affine types.
 
-        For i = 0: ̂Λ₀ = (0; 1; 0)
-        For i > 0: ̂Λ_i = (Λ_i; 1; 0)
+        Returns ω̂_i = (ω_i; a_i^∨; 0) for i = 0, 1, ..., r.
+
+        For i = 0: ω̂₀ = (0; 1; 0)
+        For i > 0: ω̂_i = (ω_i; a_i^∨; 0)
 
         Returns
         -------
@@ -1131,15 +1150,16 @@ class AffineLieAlgebra:
         >>> ala = AffineLieAlgebra(['A', 2, 1])
         >>> Lambda_hat = ala.affine_fundamental_weights()
         >>> print(Lambda_hat[0])  # (0; 1; 0)
-        >>> print(Lambda_hat[1])  # (Lambda[1]; 1; 0)
-        """
-        from .affine_weight import AffineWeight
+        >>> print(Lambda_hat[1])  # (Λ₁; 1; 0)
 
+        Notes
+        -----
+        This method is equivalent to fundamental_weights() for affine types.
+        Di Francesco Eq. (14.47): ω̂_i = (ω_i; a_i^∨; 0)
+        """
         if not self.is_affine:
             raise ValueError("Algebra must be affine type")
-
-        index_set = list(self._weight_lattice.index_set())
-        return {i: AffineWeight.affine_fundamental_weight(self, i) for i in index_set}
+        return self.fundamental_weights()
 
     def affine_simple_roots(self):
         """
@@ -1211,6 +1231,37 @@ class AffineLieAlgebra:
         from .affine_weight import AffineWeight
 
         return AffineWeight.rho_hat(self)
+
+    def affine_theta(self):
+        """
+        Get the affine highest root θ̂ = (θ; 0; 0) in Di Francesco notation.
+
+        This is the highest root θ of the finite Lie algebra, extended to
+        an affine weight with level=0 and grade=0.
+
+        Returns
+        -------
+        AffineWeight
+            The affine highest root θ̂ = (θ; 0; 0)
+
+        Examples
+        --------
+        >>> ala = AffineLieAlgebra(['A', 2, 1])
+        >>> theta_hat = ala.affine_theta()
+        >>> theta_hat.level  # 0
+        >>> theta_hat.grade  # 0
+        >>> # For A₂, θ = α₁ + α₂ = Λ₁ + Λ₂ (in weight space)
+
+        Notes
+        -----
+        The highest root θ satisfies:
+        - θ = Σ a_i α_i where a_i are the marks
+        - α₀ = -θ + δ (Di Francesco Eq. 14.32)
+        - (θ, θ) = 2 for simply-laced algebras (long root normalization)
+        """
+        from .affine_weight import AffineWeight
+
+        return AffineWeight.theta_hat(self)
 
     def __repr__(self) -> str:
         return f"AffineLieAlgebra({self._cartan_type})"

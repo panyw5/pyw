@@ -276,7 +276,7 @@ class AffineWeight:
         finite_latex = _weight_to_latex(self._finite_part)
         level_latex = _rational_to_latex(self._level)
         grade_latex = _rational_to_latex(self._grade)
-        return f"$\\hat{{\\lambda}} = ({finite_latex}; {level_latex}; {grade_latex})$"
+        return f"$({finite_latex};\\ {level_latex};\\ {grade_latex})$"
 
     def to_tuple(self) -> Tuple[Any, Any, Any]:
         """
@@ -610,7 +610,8 @@ class AffineWeight:
         lambda0 = self._algebra.lambda0_from_level(int(self._level), finite_labels)
 
         # Build affine weight using integer coefficients
-        affine_Lambda = self._algebra.fundamental_weights()
+        # Use fundamental_weights_sage() to get SageMath native weights
+        affine_Lambda = self._algebra.fundamental_weights_sage()
         result = int(lambda0) * affine_Lambda[0]
         for i, coeff in finite_labels.items():
             if coeff != 0 and i in affine_Lambda:
@@ -996,6 +997,69 @@ class AffineWeight:
         g = algebra.dual_coxeter_number()
 
         return cls(algebra, rho_finite, level=g, grade=0)
+
+    @classmethod
+    def theta_hat(cls, algebra: "AffineLieAlgebra") -> "AffineWeight":
+        """
+        Create the affine highest root θ̂ = (θ; 0; 0).
+
+        The highest root θ of the finite Lie algebra, extended to an affine
+        weight with level=0 and grade=0.
+
+        Parameters
+        ----------
+        algebra : AffineLieAlgebra
+            The affine Lie algebra
+
+        Returns
+        -------
+        AffineWeight
+            The affine highest root θ̂ = (θ; 0; 0)
+
+        Examples
+        --------
+        >>> ala = AffineLieAlgebra(['A', 2, 1])
+        >>> theta = AffineWeight.theta_hat(ala)
+        >>> theta.level  # 0
+        0
+        >>> theta.grade  # 0
+        0
+        >>> # For A₂, θ = α₁ + α₂ in root lattice
+        >>> # In weight space: θ = 2Λ₁ - Λ₂ + 2Λ₂ - Λ₁ = Λ₁ + Λ₂
+
+        Notes
+        -----
+        The highest root θ satisfies:
+        - θ = Σ a_i α_i where a_i are the marks (i > 0)
+        - α₀ = -θ + δ (Di Francesco Eq. 14.32)
+        - (θ, θ) = 2 for simply-laced algebras (long root normalization)
+
+        The finite part is expressed in the weight space using:
+            α_i = Σ_j C_ij Λ_j
+        where C is the Cartan matrix.
+        """
+        if not algebra.is_affine:
+            raise ValueError("Algebra must be affine type")
+
+        from sage.all import matrix, QQ
+
+        # Get highest root from finite root lattice
+        theta_lattice = algebra._finite_root_system.root_lattice().highest_root()
+        theta_coeffs = theta_lattice.monomial_coefficients()
+
+        # Convert to weight space: α = Σ_i c_i α_i = Σ_j (Σ_i c_i C_ij) Λ_j
+        finite_ws = algebra._finite_root_system.weight_space()
+        finite_Lambda = finite_ws.fundamental_weights()
+        C = matrix(QQ, algebra._finite_root_system.cartan_matrix())
+        finite_indices = list(algebra._finite_root_system.index_set())
+
+        theta_in_ws = finite_ws.zero()
+        for root_idx, root_coeff in theta_coeffs.items():
+            i_pos = finite_indices.index(root_idx)
+            for j_pos, j_idx in enumerate(finite_indices):
+                theta_in_ws += root_coeff * C[i_pos, j_pos] * finite_Lambda[j_idx]
+
+        return cls(algebra, theta_in_ws, level=0, grade=0)
 
     @classmethod
     def zero(cls, algebra: "AffineLieAlgebra") -> "AffineWeight":
