@@ -23,7 +23,7 @@ pip install pyw
 Or for development:
 
 ```bash
-git clone https://github.com/yourusername/pyw.git
+git clone https://github.com/panyw5/pyw.git
 cd pyw
 pip install -e ".[dev,jupyter]"
 ```
