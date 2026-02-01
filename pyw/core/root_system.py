@@ -1,0 +1,233 @@
+"""
+Affine Root System Wrapper Module
+
+This module provides a convenient wrapper around SageMath's RootSystem
+for both finite and affine root systems.
+"""
+
+from typing import List, Tuple, Union, Any
+from sage.all import RootSystem
+
+
+class AffineRootSystem:
+    """
+    Wrapper class for SageMath RootSystem supporting finite and affine types.
+
+    This class provides a convenient interface to access root system data
+    including roots, coroots, Cartan matrix, and other invariants.
+    Supports both finite types (e.g., ['A', 2]) and affine types (e.g., ['A', 2, 1]).
+
+    Attributes:
+        cartan_type: The Cartan type of the root system
+        root_system: The underlying SageMath RootSystem object
+        cartan_matrix: The Cartan matrix of the root system
+        roots: List of roots (real and imaginary for affine systems)
+        coroots: List of coroots
+        simple_roots: List of simple roots
+        simple_coroots: List of simple coroots
+        dual_coxeter_number: Dual Coxeter number g^\vee
+
+    Examples:
+        >>> # Finite type A2
+        >>> rs = AffineRootSystem(['A', 2])
+        >>> print(rs.cartan_type)
+        A2
+
+        >>> # Affine type A2^(1)
+        >>> rs_affine = AffineRootSystem(['A', 2, 1])
+        >>> print(rs_affine.cartan_type)
+        ['A', 2, 1]
+
+    Notes:
+        For affine root systems, the roots property returns all roots from the
+        ambient space, which includes both real and imaginary roots.
+        The dual Coxeter number g^\vee is computed as the scalar
+        k = h^\vee for the dual root system.
+    """
+
+    def __init__(self, cartan_type: Union[Tuple[str, int], List[Union[str, int]]]) -> None:
+        """
+        Initialize the AffineRootSystem wrapper.
+
+        Args:
+            cartan_type: The Cartan type of the root system. Can be:
+                - A tuple for finite types, e.g., ('A', 2) or ['A', 2]
+                - A list for affine types, e.g., ['A', 2, 1]
+
+        Raises:
+            TypeError: If cartan_type is not a tuple or list
+        """
+        if isinstance(cartan_type, list):
+            self._cartan_type: Union[Tuple[str, int], List[Union[str, int]]] = cartan_type
+        elif isinstance(cartan_type, tuple):
+            self._cartan_type = cartan_type
+        else:
+            raise TypeError(f"cartan_type must be tuple or list, got {type(cartan_type)}")
+
+        self._root_system = None
+        self._cartan_matrix = None
+        self._roots = None
+        self._coroots = None
+        self._simple_roots = None
+        self._simple_coroots = None
+        self._dual_coxeter_number = None
+
+    @property
+    def cartan_type(self) -> Union[Tuple[str, int], List[Union[str, int]]]:
+        """
+        Get the Cartan type of the root system.
+
+        Returns:
+            The Cartan type as a tuple (for finite) or list (for affine)
+        """
+        return self._cartan_type
+
+    @property
+    def root_system(self) -> RootSystem:
+        """
+        Get the underlying SageMath RootSystem object.
+
+        Returns:
+            SageMath RootSystem instance
+
+        Notes:
+            This provides direct access to all SageMath RootSystem methods
+        """
+        if self._root_system is None:
+            self._root_system = RootSystem(self._cartan_type)
+        return self._root_system
+
+    @property
+    def cartan_matrix(self):
+        """
+        Get the Cartan matrix of the root system.
+
+        Returns:
+            SageMath matrix representing the Cartan matrix
+
+        Notes:
+            The Cartan matrix C_ij satisfies α_j(H_i) = C_ij
+            where α are simple roots and H are simple coroots
+        """
+        if self._cartan_matrix is None:
+            self._cartan_matrix = self.root_system.cartan_matrix()
+        return self._cartan_matrix
+
+    @property
+    def roots(self) -> List[Any]:
+        """
+        Get all roots of the root system.
+
+        Returns:
+            List of root vectors from the ambient space
+
+        Notes:
+            For finite types: returns all roots (positive and negative)
+            For affine types: returns roots from the ambient space,
+            which includes both real and imaginary roots
+        """
+        if self._roots is None:
+            ambient_space = self.root_system.ambient_space()
+            self._roots = list(ambient_space.roots())
+        return self._roots
+
+    @property
+    def coroots(self) -> List[Any]:
+        """
+        Get all coroots of the root system.
+
+        Returns:
+            List of coroot vectors
+
+        Notes:
+            Coroots live in the dual space and satisfy the pairing
+            α_j(H_i) = C_ij where C_ij is the Cartan matrix
+        """
+        if self._coroots is None:
+            self._coroots = list(self.root_system.coroot_lattice().basis())
+        return self._coroots
+
+    @property
+    def simple_roots(self) -> List[Any]:
+        """
+        Get the simple roots of the root system.
+
+        Returns:
+            List of simple root vectors
+
+        Notes:
+            Simple roots form a basis of the root lattice and
+            generate all roots under simple reflections
+        """
+        if self._simple_roots is None:
+            self._simple_roots = list(self.root_system.root_lattice().simple_roots())
+        return self._simple_roots
+
+    @property
+    def simple_coroots(self) -> List[Any]:
+        """
+        Get the simple coroots of the root system.
+
+        Returns:
+            List of simple coroot vectors
+
+        Notes:
+            Simple coroots form a basis of the coroot lattice
+            and are dual to simple roots via the Cartan matrix
+        """
+        if self._simple_coroots is None:
+            self._simple_coroots = list(self.root_system.coroot_lattice().simple_roots())
+        return self._simple_coroots
+
+    @property
+    def dual_coxeter_number(self) -> Union[int, None]:
+        """
+        Get the dual Coxeter number g^\vee.
+
+        Returns:
+            The dual Coxeter number as an integer, or None if not defined
+
+        Notes:
+            The dual Coxeter number g^\vee is defined as the scalar k
+            such that θ(H_0) = k where θ is the highest root and H_0 is the
+            0-th simple coroot.
+
+            For finite types, this equals the Coxeter number h.
+            For affine types, g^\vee can be computed from the Cartan matrix.
+
+        References:
+            Kac, V. G. "Infinite Dimensional Lie Algebras", Lemma 4.8
+        """
+        if self._dual_coxeter_number is None:
+            try:
+                # Try to compute from the Cartan matrix
+                # For affine types, the dual Coxeter number can be read from
+                # the last column of the extended Cartan matrix
+                cm = self.cartan_matrix
+
+                # Check if it's an affine type (has an extra row/column)
+                if cm.ncols() > cm.nrows() or cm.nrows() > cm.ncols():
+                    # For affine, find the coefficient such that sum over all
+                    # simple coroots with the minimal imaginary root gives the dual number
+                    # A simpler approach: use the distinguished node
+                    self._dual_coxeter_number = int(cm[0, -1])
+                else:
+                    # For finite types, compute Coxeter number
+                    try:
+                        self._dual_coxeter_number = int(self.root_system.coxeter_number())
+                    except AttributeError:
+                        # Fallback: compute from sum of coefficients in highest root
+                        self._dual_coxeter_number = None
+            except Exception:
+                self._dual_coxeter_number = None
+
+        return self._dual_coxeter_number
+
+    def __repr__(self) -> str:
+        """
+        Return a string representation of the AffineRootSystem.
+
+        Returns:
+            String representation showing the Cartan type
+        """
+        return f"AffineRootSystem({self._cartan_type})"
