@@ -79,6 +79,10 @@ class AffineLieAlgebra:
         self._theta = None
         self._rho_hat = None
 
+        # Cache for Weyl group wrappers
+        self._finite_weyl_group_cache = None
+        self._extended_affine_weyl_group_cache = None
+
         # Finite type information (for affine types)
         self._finite_type = None
         self._finite_root_system = None
@@ -991,6 +995,38 @@ class AffineLieAlgebra:
     def cartan_matrix(self):
         """Get the Cartan matrix."""
         return self._cartan_type_obj.cartan_matrix()
+
+    # ==========================================================================
+    # Weyl Group Convenience Accessors
+    # ==========================================================================
+
+    def finite_weyl_group(self):
+        """Return a finite Weyl group wrapper for this algebra.
+
+        For affine Cartan types, this returns the Weyl group of the underlying
+        finite root system.
+        """
+        # Local import to avoid cycles.
+        from .weyl_group import FiniteWeylGroup
+
+        if self._finite_weyl_group_cache is None:
+            self._finite_weyl_group_cache = FiniteWeylGroup(self)
+        return self._finite_weyl_group_cache
+
+    def affine_weyl_group(self):
+        """Return the (extended) affine Weyl group wrapper W \u22c9 Q^\u2228.
+
+        This is the semidirect-product implementation used by our demos/scripts.
+        """
+        # Local import to avoid cycles.
+        from .weyl_group import ExtendedAffineWeylGroup
+
+        if not self.is_affine:
+            raise ValueError("affine_weyl_group() is only available for affine Cartan types")
+
+        if self._extended_affine_weyl_group_cache is None:
+            self._extended_affine_weyl_group_cache = ExtendedAffineWeylGroup(self)
+        return self._extended_affine_weyl_group_cache
 
     # ==========================================================================
     # Helper Methods

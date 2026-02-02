@@ -58,3 +58,20 @@ def test_translation_grade_uses_weight_coroot_pairing():
     expected_grade = x.grade - pairing - x.level * norm_sq / 2
 
     assert y.grade == expected_grade
+
+
+@pytest.mark.sage
+def test_affine_lie_algebra_affine_weyl_group_glue():
+    from pyw.core.affine_lie_algebra import AffineLieAlgebra
+    from pyw.core.weyl_group import ExtendedAffineWeylGroup, FiniteWeylGroup
+
+    ala = AffineLieAlgebra(["A", 2, 1])
+
+    W_hat = ala.affine_weyl_group()
+    assert isinstance(W_hat, ExtendedAffineWeylGroup)
+    # cached
+    assert ala.affine_weyl_group() is W_hat
+
+    W = ala.finite_weyl_group()
+    assert isinstance(W, FiniteWeylGroup)
+    assert ala.finite_weyl_group() is W
