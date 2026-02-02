@@ -13,10 +13,8 @@ pytest.importorskip("sage.all")
 
 from sage.all import RootSystem
 
-from pyw.fractional.boundary_admissible import (
-    BoundaryAdmissibleWeights,
-    latex_weight,
-)
+from pyw.fractional.boundary_admissible import BoundaryAdmissibleWeights
+from pyw.fractional.verify_sl2_boundary import latex_weight
 
 
 class TestBoundaryAdmissibleWeights:
