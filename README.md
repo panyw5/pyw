@@ -52,6 +52,34 @@ admissible = AdmissibleWeight(['A', 2, 1], weight, level)
 print(f"Is admissible: {admissible.is_admissible()}")
 ```
 
+### Weight and Coweight Operations
+
+Weights and coweights live in different mathematical spaces, but you can convert between them:
+
+```python
+from pyw.core import AffineLieAlgebra
+
+alg = AffineLieAlgebra(['A', 1, 1])
+
+# Get weights and coweights
+Lambda = alg.fundamental_weights()
+Lambda_check = alg.fundamental_coweights()
+
+# Convert coweight to weight space for arithmetic
+cw = -2 * Lambda_check[1]
+cw_as_weight = alg.coweight_to_weight(cw)
+
+# Now can mix with weights
+from pyw.core.affine_weight import AffineWeight
+w_finite = AffineWeight.affine_fundamental_weight(alg, 0).finite_part
+mixed = cw_as_weight + w_finite
+
+# Use in translations with fractional coefficients
+trans = alg.extended_affine_weyl_group().translation
+result = trans(cw).action((-4/3) * Lambda[0])
+print(f"Result: {result}")
+```
+
 ## Project Structure
 
 ```

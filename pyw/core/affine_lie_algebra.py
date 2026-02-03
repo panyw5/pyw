@@ -204,8 +204,8 @@ class AffineLieAlgebra:
         """
         if self._comarks is None:
             ct = self._cartan_type_obj
-            # Comarks are marks of the dual Cartan type
-            sage_comarks = ct.dual().c()
+            # Comarks are the dual marks (acheck) from the Cartan type
+            sage_comarks = ct.acheck()
             self._comarks = {i: int(sage_comarks[i]) for i in sage_comarks.keys()}
         return self._comarks
 
@@ -683,20 +683,19 @@ class AffineLieAlgebra:
         n = weight.grade
 
         # Convert alpha_vee to the same space as lambda_finite if needed
-        # Coroots are in coroot_lattice, but we need to add to weight_lattice/space
+        # Coweights are in coweight_lattice, but we need to add to weight_lattice/space
+        # IMPORTANT: Coweights must be reconstructed using fundamental_weights, NOT simple_roots!
+        # For coweight Λ_i^∨ with coefficient c_i, we need c_i * Λ_i (fundamental weight),
+        # not c_i * α_i (simple root), since Λ_i^∨ is dual to α_i, not to Λ_i.
         alpha_vee_coeffs = alpha_vee.monomial_coefficients()
         if hasattr(lambda_finite, "parent"):
             parent = lambda_finite.parent()
-            # Reconstruct alpha_vee in the weight space using simple roots
-            simple_elements = (
-                parent.simple_roots()
-                if hasattr(parent, "simple_roots")
-                else parent.fundamental_weights()
-            )
+            # Reconstruct alpha_vee in the weight space using fundamental_weights
+            fundamental_weights = parent.fundamental_weights()
             alpha_vee_in_parent = parent.zero()
             for idx, coeff in alpha_vee_coeffs.items():
-                if idx in simple_elements.keys():
-                    alpha_vee_in_parent += coeff * simple_elements[idx]
+                if idx in fundamental_weights.keys():
+                    alpha_vee_in_parent += coeff * fundamental_weights[idx]
         else:
             alpha_vee_in_parent = alpha_vee
 
@@ -762,14 +761,17 @@ class AffineLieAlgebra:
 
         Returns
         -------
-        A representation of δ (as a tuple or symbolic element)
+        AffineWeight
+            The imaginary root δ as an AffineWeight object
 
         Notes
         -----
         Di Francesco Eq. (14.27): δ = (0; 0; 1)
         Di Francesco Eq. (14.31): (δ, δ) = 0
         """
-        return (0, 0, 1)  # (finite; k-grade; n-grade)
+        from .affine_weight import AffineWeight
+
+        return AffineWeight.delta(self)
 
     def theta(self):
         """
@@ -992,6 +994,149 @@ class AffineLieAlgebra:
         alpha_vee = rs.simple_roots()
         return {i: alpha_vee[i] for i in rs.index_set()}
 
+    def fundamental_coweights(self, finite: bool = False):
+        """
+        Get the fundamental coweights Λᵢ^∨ from the coweight lattice P^∨.
+
+        The fundamental coweights form a dual basis to the simple roots,
+        satisfying ⟨αᵢ, Λⱼ^∨⟩ = δᵢⱼ.
+
+        For affine Lie algebras, SageMath provides the coweight lattice directly,
+        which correctly handles the affine index 0 (where α₀ is a null root with
+        (α₀, α₀) = 0).
+
+        Parameters
+        ----------
+        finite : bool, optional
+            If True, return fundamental coweights from the finite coweight lattice
+            (for affine types). If False (default), return from the full coweight
+            lattice (includes affine index 0 for affine types).
+
+        Returns
+        -------
+        dict
+            Dictionary mapping indices to fundamental coweight elements from P^∨
+
+        Examples
+        --------
+        >>> ala = AffineLieAlgebra(['A', 2, 1])
+        >>> Lambda_check = ala.fundamental_coweights()
+        >>> Lambda_check[0]  # Λ₀^∨ (affine)
+        Lambdacheck[0]
+        >>> Lambda_check[1]  # Λ₁^∨
+        Lambdacheck[1]
+
+        >>> # For ExtendedAffineWeylGroup, use finite=True
+        >>> Lambda_check_finite = ala.fundamental_coweights(finite=True)
+        >>> Lambda_check_finite[1]  # Only finite indices
+        Lambdacheck[1]
+
+        Notes
+        -----
+        For simply-laced algebras (A, D, E):
+        - All roots have the same length: (α_i, α_i) = 2
+        - Therefore: ω_i^∨ = ω_i (fundamental weights equal coweights)
+
+        For affine algebras, the affine simple root α₀ is a null root:
+        - (α₀, α₀) = 0, so the formula ω₀^∨ = 2/(α₀, α₀) * ω₀ is undefined
+        - SageMath's coweight lattice handles this correctly
+
+        See also
+        --------
+        fundamental_weights : Get fundamental weights Λᵢ
+        simple_coroots : Get simple coroots αᵢ^∨
+        extended_affine_weyl_group : Uses finite P^∨ for translations
+
+        References
+        ----------
+        Di Francesco et al., "Conformal Field Theory", Chapter 13, Eq. (13.40)
+        """
+        # Use SageMath's coweight lattice directly
+        if finite and self.is_affine:
+            # For affine types with finite=True, use finite coweight lattice
+            cwl = self._finite_root_system.coweight_lattice()
+        else:
+            # Use full coweight lattice (includes affine index 0 for affine types)
+            cwl = self._root_system.coweight_lattice()
+
+        # Get fundamental coweights from SageMath
+        Lambda_check = cwl.fundamental_weights()
+        return {i: Lambda_check[i] for i in cwl.index_set()}
+
+    def coweight_to_weight(self, coweight, finite: bool = True):
+        """
+        Convert a coweight element to weight space.
+
+        This enables arithmetic operations between weights and coweights by
+        converting the coweight to an element in the weight space with the
+        same coefficients in the fundamental weight/coweight basis.
+
+        Parameters
+        ----------
+        coweight : element from coweight lattice/space
+            The coweight to convert (e.g., from fundamental_coweights())
+        finite : bool, optional
+            If True (default), return element in finite weight space
+            If False, return element in full affine weight space
+
+        Returns
+        -------
+        Element in weight space that can be added to other weights
+
+        Examples
+        --------
+        >>> alg = AffineLieAlgebra(['A', 1, 1])
+        >>> Lambda_check = alg.fundamental_coweights()
+        >>> Lambda = alg.fundamental_weights()
+        >>>
+        >>> # Convert coweight to weight space
+        >>> cw = -2 * Lambda_check[1]
+        >>> w = alg.coweight_to_weight(cw)
+        >>>
+        >>> # Now can add to weights
+        >>> # (Note: Lambda[0] is AffineWeight, need finite part)
+        >>> from pyw.core.affine_weight import AffineWeight
+        >>> w_finite = AffineWeight.affine_fundamental_weight(alg, 0).finite_part
+        >>> result = w + w_finite  # Works!
+        >>>
+        >>> # Use in fractional expressions
+        >>> fractional = (-4/3) * w_finite
+        >>> mixed = alg.coweight_to_weight(cw) + fractional
+
+        Notes
+        -----
+        For simply-laced algebras (A, D, E), the fundamental coweights equal
+        the fundamental weights: Λᵢ^∨ = Λᵢ. This method preserves the coefficients.
+
+        For non-simply-laced algebras, the relationship is more complex, but
+        this method still preserves the coefficients in the respective bases.
+
+        The conversion is done via monomial_coefficients() to avoid issues
+        with null roots in affine algebras where (α₀, α₀) = 0.
+
+        See also
+        --------
+        fundamental_coweights : Get fundamental coweights Λᵢ^∨
+        fundamental_weights : Get fundamental weights Λᵢ
+        """
+        # Get coefficients from coweight
+        cw_coeffs = coweight.monomial_coefficients()
+
+        # Get target weight space
+        if finite and self.is_affine:
+            ws = self._finite_root_system.weight_space()
+        else:
+            ws = self._root_system.weight_space()
+
+        # Reconstruct using fundamental weights
+        Lambda = ws.fundamental_weights()
+        result = ws.zero()
+        for i, c in cw_coeffs.items():
+            if i in Lambda.keys():
+                result += c * Lambda[i]
+
+        return result
+
     def cartan_matrix(self):
         """Get the Cartan matrix."""
         return self._cartan_type_obj.cartan_matrix()
@@ -1014,19 +1159,52 @@ class AffineLieAlgebra:
         return self._finite_weyl_group_cache
 
     def affine_weyl_group(self):
-        """Return the (extended) affine Weyl group wrapper W \u22c9 Q^\u2228.
+        """Return the affine Weyl group wrapper W ⋉ Q^∨.
 
         This is the semidirect-product implementation used by our demos/scripts.
         """
         # Local import to avoid cycles.
-        from .weyl_group import ExtendedAffineWeylGroup
+        from .weyl_group import AffineWeylGroupSemidirect
 
         if not self.is_affine:
             raise ValueError("affine_weyl_group() is only available for affine Cartan types")
 
         if self._extended_affine_weyl_group_cache is None:
-            self._extended_affine_weyl_group_cache = ExtendedAffineWeylGroup(self)
+            self._extended_affine_weyl_group_cache = AffineWeylGroupSemidirect(self)
         return self._extended_affine_weyl_group_cache
+
+    def extended_affine_weyl_group(self):
+        """Return the extended affine Weyl group wrapper W ⋉ P^∨.
+
+        This is the true extended affine Weyl group using the coweight lattice P^∨,
+        which is larger than Q^∨. The quotient P^∨/Q^∨ is isomorphic to the
+        fundamental group π₁(G) of the corresponding Lie group.
+
+        Returns
+        -------
+        ExtendedAffineWeylGroup
+            The extended affine Weyl group W ⋉ P^∨
+
+        Notes
+        -----
+        - affine_weyl_group() returns W ⋉ Q^∨ (coroot lattice)
+        - extended_affine_weyl_group() returns W ⋉ P^∨ (coweight lattice)
+        - Relationship: W ⋉ Q^∨ ⊆ W ⋉ P^∨
+        """
+        # Local import to avoid cycles.
+        from .weyl_group import ExtendedAffineWeylGroup
+
+        if not self.is_affine:
+            raise ValueError(
+                "extended_affine_weyl_group() is only available for affine Cartan types"
+            )
+
+        if not hasattr(self, "_true_extended_affine_weyl_group_cache"):
+            self._true_extended_affine_weyl_group_cache = None
+
+        if self._true_extended_affine_weyl_group_cache is None:
+            self._true_extended_affine_weyl_group_cache = ExtendedAffineWeylGroup(self)
+        return self._true_extended_affine_weyl_group_cache
 
     # ==========================================================================
     # Helper Methods
