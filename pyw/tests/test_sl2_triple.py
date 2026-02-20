@@ -413,7 +413,8 @@ class TestHfAndDeltaL:
                 alphacheck = rl.simple_coroots()
 
                 for v in hf:
-                    h_elem = sum(v[i] * B[alphacheck[i + 1]] for i in range(n))
+                    # v is a coroot lattice element; extract coefficients
+                    h_elem = sum(v.coefficient(i) * B[alphacheck[i]] for i in range(1, n + 1))
                     bracket = L.bracket(h_elem, triple.f)
                     assert bracket == 0, (
                         f"{letter}{n} {orb.partition}: [h, f] != 0 for h^f basis {v}"

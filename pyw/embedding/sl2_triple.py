@@ -41,6 +41,7 @@ from sage.all import (
     Matrix,
     QQ,
     RootSystem,
+    ZZ,
 )
 
 
@@ -307,25 +308,23 @@ class SL2Triple:
         Returns
         -------
         list
-            Basis vectors of `\mathfrak{h}^f`, each expressed as a coefficient
-            vector `(c_1, \dots, c_n)` in the simple coroot basis
-            `h = \sum_i c_i \alpha_i^\vee`.
+            Basis vectors of `\mathfrak{h}^f`, each as a coroot lattice element
+            `\sum_i c_i \alpha_i^\vee`.
 
         Examples
         --------
         >>> triple = compute_sl2_triple(('A', 3), [2, 1, 1])
         >>> triple.h_f()  # 2-dimensional for the minimal orbit
-        [(1, 0, -1), (0, 1, 0)]
+        [alphacheck[1] - alphacheck[3], alphacheck[2]]
         """
         letter, n = self.lie_type
-
-        if self.f == 0:
-            # Zero orbit: h^f = entire Cartan subalgebra
-            return [tuple(1 if j == i else 0 for j in range(n)) for i in range(n)]
-
         R = RootSystem([letter, n])
         rl = R.root_lattice()
         alpha_check = rl.simple_coroots()
+
+        if self.f == 0:
+            # Zero orbit: h^f = entire Cartan subalgebra
+            return [alpha_check[i] for i in range(1, n + 1)]
 
         # Extract positive roots appearing in f
         f_mc = self.f.monomial_coefficients()
@@ -338,9 +337,9 @@ class SL2Triple:
             row = [beta.scalar(alpha_check[i]) for i in range(1, n + 1)]
             rows.append(row)
 
-        M = Matrix(QQ, rows)
+        M = Matrix(ZZ, rows)
         K = M.right_kernel()
-        return [tuple(v) for v in K.basis()]
+        return [sum(ZZ(v[i]) * alpha_check[i + 1] for i in range(n)) for v in K.basis()]
 
     def delta_l(self) -> List:
         r"""Compute `\Delta_\mathfrak{l} = \{\alpha \in \Delta \mid \alpha|_{\mathfrak{h}^f} = 0\}`.
@@ -363,7 +362,6 @@ class SL2Triple:
 
         R = RootSystem([letter, n])
         rl = R.root_lattice()
-        alpha_check = rl.simple_coroots()
         pos_roots = list(rl.positive_roots())
         all_roots = pos_roots + [-r for r in pos_roots]
 
@@ -373,13 +371,7 @@ class SL2Triple:
 
         result = []
         for r in all_roots:
-            vanishes = True
-            for v in hf_basis:
-                val = sum(v[i] * r.scalar(alpha_check[i + 1]) for i in range(n))
-                if val != 0:
-                    vanishes = False
-                    break
-            if vanishes:
+            if all(r.scalar(v) == 0 for v in hf_basis):
                 result.append(r)
         return result
 
