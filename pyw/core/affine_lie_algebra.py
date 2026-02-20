@@ -123,6 +123,46 @@ class AffineLieAlgebra:
         return not self.is_affine
 
     @property
+    def finite_lie_algebra(self) -> "AffineLieAlgebra":
+        """
+        Return the underlying finite-dimensional Lie algebra.
+
+        For an affine Lie algebra of type X_r^(1), this returns the
+        finite Lie algebra of type X_r.  For a finite Lie algebra,
+        returns ``self``.
+
+        Returns
+        -------
+        AffineLieAlgebra
+            The finite Lie algebra instance (with finite Cartan type)
+
+        Examples
+        --------
+        >>> ala = AffineLieAlgebra(['A', 2, 1])
+        >>> g = ala.finite_lie_algebra
+        >>> g.is_finite
+        True
+        >>> g.rank
+        2
+
+        >>> ala_fin = AffineLieAlgebra(['B', 3])
+        >>> ala_fin.finite_lie_algebra is ala_fin
+        True
+
+        Notes
+        -----
+        Di Francesco §14.1: Every affine Lie algebra is built from a
+        finite-dimensional simple Lie algebra via the loop construction.
+        """
+        if self.is_finite:
+            return self
+        if not hasattr(self, "_finite_lie_algebra_cache"):
+            self._finite_lie_algebra_cache = None
+        if self._finite_lie_algebra_cache is None:
+            self._finite_lie_algebra_cache = AffineLieAlgebra(list(self._finite_type))
+        return self._finite_lie_algebra_cache
+
+    @property
     def rank(self) -> int:
         """Return the rank of the (finite) Lie algebra."""
         return self._cartan_type_obj.rank()
@@ -1140,6 +1180,45 @@ class AffineLieAlgebra:
     def cartan_matrix(self):
         """Get the Cartan matrix."""
         return self._cartan_type_obj.cartan_matrix()
+
+    # ==========================================================================
+    # Nilpotent Orbits
+    # ==========================================================================
+
+    def nilpotent_orbits(self):
+        """
+        Enumerate nilpotent orbits of the finite Lie algebra.
+
+        For affine types, this delegates to the underlying finite Lie
+        algebra.  Only classical types (A, B, C, D) are supported.
+
+        Returns
+        -------
+        list of NilpotentOrbit
+            Orbits sorted by dimension (ascending).
+
+        Examples
+        --------
+        >>> ala = AffineLieAlgebra(['A', 2, 1])
+        >>> ala.finite_lie_algebra.nilpotent_orbits()  # 3 orbits for sl(3)
+        >>> AffineLieAlgebra(['A', 4]).nilpotent_orbits()  # 7 orbits for sl(5)
+
+        Notes
+        -----
+        Delegates to ``pyw.algorithms.nilpotent_orbits.nilpotent_orbits()``.
+        """
+        if self.is_affine:
+            return self.finite_lie_algebra.nilpotent_orbits()
+
+        from pyw.algorithms.nilpotent_orbits import nilpotent_orbits as _nilpotent_orbits
+
+        ct = self._cartan_type
+        if isinstance(ct, (list, tuple)):
+            letter, rank = ct[0], ct[1]
+        else:
+            letter = str(ct)
+            rank = self.rank
+        return _nilpotent_orbits(letter, rank)
 
     # ==========================================================================
     # Weyl Group Convenience Accessors
