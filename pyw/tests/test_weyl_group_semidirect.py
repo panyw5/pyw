@@ -107,6 +107,90 @@ def test_translation_grade_uses_weight_coroot_pairing(cartan_type):
 
 
 @pytest.mark.sage
+@pytest.mark.parametrize("cartan_type", AFFINE_CARTAN_TYPES)
+def test_reflection_for_arbitrary_root(cartan_type):
+    """W.reflection(root) gives s_α as (s_α, 0) for any positive root."""
+    from pyw.core.affine_lie_algebra import AffineLieAlgebra
+    from pyw.core.weyl_group import AffineWeylGroupSemidirect
+
+    ala = AffineLieAlgebra(cartan_type)
+    W = AffineWeylGroupSemidirect(ala)
+
+    root_lattice = W._finite_root_lattice
+    positive_roots = list(root_lattice.positive_roots())
+
+    x = ala.affine_fundamental_weights()[1]
+
+    for alpha in positive_roots:
+        s_alpha = W.reflection(alpha)
+
+        # 1. Check it is a pure finite reflection (no translation)
+        assert s_alpha.translation_vector == W._zero_beta
+
+        # 2. Check s_α is an involution: s_α * s_α = identity
+        s_sq = s_alpha * s_alpha
+        assert list(s_sq._w.reduced_word()) == []
+        assert s_sq.translation_vector == W._zero_beta
+
+        # 3. Action composition: (s_α * s_α)(x) == x
+        assert s_sq.action(x) == x
+
+    # 4. Specifically check that reflection(theta) matches s_theta
+    theta = root_lattice.highest_root()
+    s_theta = W.reflection(theta)
+    s0 = W.simple_reflection(0)
+    t_neg_theta = W.translation(-W.theta_coroot())
+    s_theta_via_s0 = s0 * W.translation(W.theta_coroot())
+
+    # s_theta.action == s_theta_via_s0.action on test weight
+    assert s_theta.action(x) == s_theta_via_s0.action(x)
+
+
+@pytest.mark.sage
+@pytest.mark.parametrize("cartan_type", AFFINE_CARTAN_TYPES)
+def test_reflection_matches_simple_reflection(cartan_type):
+    """W.reflection(α_i) should give the same action as W.simple_reflection(i)."""
+    from pyw.core.affine_lie_algebra import AffineLieAlgebra
+    from pyw.core.weyl_group import AffineWeylGroupSemidirect
+
+    ala = AffineLieAlgebra(cartan_type)
+    W = AffineWeylGroupSemidirect(ala)
+
+    root_lattice = W._finite_root_lattice
+    simple_roots = root_lattice.simple_roots()
+    x = ala.affine_fundamental_weights()[1]
+
+    for i, alpha_i in simple_roots.items():
+        s_i = W.simple_reflection(int(i))
+        s_alpha_i = W.reflection(alpha_i)
+        assert s_alpha_i.action(x) == s_i.action(x)
+
+
+@pytest.mark.sage
+def test_translation_times_reflection_a2():
+    """t_{ω1+3ω2} * s_θ in ExtendedAffineWeylGroup for A2."""
+    from pyw.core.affine_lie_algebra import AffineLieAlgebra
+    from pyw.core.weyl_group import ExtendedAffineWeylGroup
+
+    ala = AffineLieAlgebra(["A", 2, 1])
+    W_ext = ExtendedAffineWeylGroup(ala)
+
+    coweights = W_ext._finite_coweight_lattice.fundamental_weights()
+    vec = coweights[1] + 3 * coweights[2]
+    t_vec = W_ext.translation(vec)
+
+    s_theta = W_ext.reflection(W_ext._finite_root_lattice.highest_root())
+
+    result = t_vec * s_theta
+    # s_θ(ω1∨ + 3ω2∨) = (ω1∨+3ω2∨) - 4(ω1∨+ω2∨) = -3ω1∨ - ω2∨
+    expected_translation = -3 * coweights[1] - coweights[2]
+
+    assert result.translation_vector == expected_translation
+    # finite part is s_theta = s1*s2*s1
+    assert sorted(result.reduced_word()) == [1, 1, 2] or len(result.reduced_word()) == 3
+
+
+@pytest.mark.sage
 def test_affine_lie_algebra_affine_weyl_group_glue():
     from pyw.core.affine_lie_algebra import AffineLieAlgebra
     from pyw.core.weyl_group import AffineWeylGroupSemidirect, FiniteWeylGroup

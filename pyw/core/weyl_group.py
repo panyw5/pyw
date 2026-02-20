@@ -387,8 +387,8 @@ class FiniteWeylGroupElement:
         return self._w
 
 
-class ExtendedAffineWeylGroup:
-    """Extended affine Weyl group implemented as a semidirect product W ⋉ Q^∨.
+class AffineWeylGroupSemidirect:
+    """Affine Weyl group implemented as a semidirect product W ⋉ Q^∨.
 
     Representation convention
     -------------------------
@@ -401,7 +401,7 @@ class ExtendedAffineWeylGroup:
 
     def __init__(self, algebra: Any):
         if not getattr(algebra, "is_affine", False):
-            raise ValueError("ExtendedAffineWeylGroup requires an affine algebra")
+            raise ValueError("AffineWeylGroupSemidirect requires an affine algebra")
 
         self._algebra = algebra
         finite_rs = algebra._finite_root_system
@@ -480,31 +480,31 @@ class ExtendedAffineWeylGroup:
         return self._algebra
 
     def __repr__(self) -> str:
-        return f"ExtendedAffineWeylGroup({self._algebra._cartan_type})"
+        return f"AffineWeylGroupSemidirect({self._algebra._cartan_type})"
 
-    def identity(self) -> "ExtendedAffineWeylGroupElement":
-        return ExtendedAffineWeylGroupElement(self, self._W_weight.one(), self._zero_beta)
+    def identity(self) -> "AffineWeylGroupSemidirectElement":
+        return AffineWeylGroupSemidirectElement(self, self._W_weight.one(), self._zero_beta)
 
     def theta_coroot(self) -> Any:
         return self._theta_coroot
 
-    def translation(self, beta: Any) -> "ExtendedAffineWeylGroupElement":
+    def translation(self, beta: Any) -> "AffineWeylGroupSemidirectElement":
         beta_cs = self._coerce_to_coroot_space(beta)
-        return ExtendedAffineWeylGroupElement(self, self._W_weight.one(), beta_cs)
+        return AffineWeylGroupSemidirectElement(self, self._W_weight.one(), beta_cs)
 
-    def simple_reflection(self, i: int) -> "ExtendedAffineWeylGroupElement":
+    def simple_reflection(self, i: int) -> "AffineWeylGroupSemidirectElement":
         if i == 0:
             # Convention used by our debug notebook/scripts:
             # s0 = s_theta * t_{-theta^vee}
-            return ExtendedAffineWeylGroupElement(self, self._s_theta_weight, -self._theta_coroot)
+            return AffineWeylGroupSemidirectElement(self, self._s_theta_weight, -self._theta_coroot)
 
-        return ExtendedAffineWeylGroupElement(
+        return AffineWeylGroupSemidirectElement(
             self, self._W_weight.simple_reflection(i), self._zero_beta
         )
 
     def elements_as_semi_direct_product(
         self, *, translation_bounds: Mapping[int, tuple[int, int]]
-    ) -> list["ExtendedAffineWeylGroupElement"]:
+    ) -> list["AffineWeylGroupSemidirectElement"]:
         """Enumerate a bounded subset of W ⋉ Q^∨.
 
         Parameters
@@ -515,7 +515,7 @@ class ExtendedAffineWeylGroup:
 
         Returns
         -------
-        list[ExtendedAffineWeylGroupElement]
+        list[AffineWeylGroupSemidirectElement]
             Deterministic ordering: first all finite elements with zero translation,
             then increasing translation (lexicographic coefficients) combined with
             finite elements sorted by (length, reduced_word).
@@ -532,10 +532,10 @@ class ExtendedAffineWeylGroup:
             finite_elts, key=lambda w: (_sage_element_length(w), tuple(w.reduced_word()))
         )
 
-        result: list[ExtendedAffineWeylGroupElement] = []
+        result: list[AffineWeylGroupSemidirectElement] = []
         # Zero translation first.
         for w in finite_elts_sorted:
-            result.append(ExtendedAffineWeylGroupElement(self, w, self._zero_beta))
+            result.append(AffineWeylGroupSemidirectElement(self, w, self._zero_beta))
 
         # Non-zero translations.
         basis = self._finite_coroot_space.simple_roots()  # alphacheck[i]
@@ -547,7 +547,7 @@ class ExtendedAffineWeylGroup:
                 if c:
                     beta += int(c) * basis[int(i)]
             for w in finite_elts_sorted:
-                result.append(ExtendedAffineWeylGroupElement(self, w, beta))
+                result.append(AffineWeylGroupSemidirectElement(self, w, beta))
 
         return result
 
@@ -578,23 +578,71 @@ class ExtendedAffineWeylGroup:
         # Compute reflection s_theta in the finite Weyl group by conjugating
         # a simple reflection: if u(α_j) = θ, then s_θ = u s_j u^{-1}.
         theta = self._finite_root_lattice.highest_root()
+        return self._reflection_on_weight_space(theta)
+
+    def _reflection_on_weight_space(self, root: Any) -> Any:
+        """Compute s_root in the finite Weyl group on weight space.
+
+        Given a root α in the root lattice, construct the reflection s_α by
+        conjugation: find u ∈ W and simple root α_j such that u(α_j) = α,
+        then s_α = u · s_j · u⁻¹.
+
+        Parameters
+        ----------
+        root : root lattice element
+            A root (typically a positive root) in the finite root lattice.
+
+        Returns
+        -------
+        Weyl group element on weight space.
+        """
+        # Ensure root is in the root lattice.
+        root_rl = self._finite_root_lattice(root)
         simple_roots = self._finite_root_lattice.simple_roots()
 
         candidates = list(self._W_root)
         for j, alpha_j in simple_roots.items():
             for u in candidates:
-                if u.action(alpha_j) == theta:
+                if u.action(alpha_j) == root_rl:
                     u_word = list(u.reduced_word())
                     u_weight = self._W_weight.from_reduced_word(u_word)
                     s_j_weight = self._W_weight.simple_reflection(int(j))
                     return u_weight * s_j_weight * u_weight.inverse()
 
-        raise RuntimeError("Failed to construct s_theta in finite Weyl group")
+        raise RuntimeError(f"Failed to construct s_({root}) in finite Weyl group")
+
+    def reflection(self, root: Any) -> "AffineWeylGroupSemidirectElement":
+        """Construct the Weyl reflection s_α for an arbitrary root α.
+
+        Given any root α in the finite root system, returns the element
+        (s_α, 0) of the semidirect product W ⋉ Q∨ — i.e., the pure finite
+        reflection with zero translation.
+
+        Parameters
+        ----------
+        root : root lattice element
+            A root in the finite root lattice (e.g., ``alpha[1] + alpha[2]``
+            for the highest root θ of A₂).
+
+        Returns
+        -------
+        AffineWeylGroupSemidirectElement
+            The reflection s_α as (s_α, 0).
+
+        Example
+        -------
+        >>> ala = AffineLieAlgebra("A", 2, 1)
+        >>> W = ala.affine_weyl_group()
+        >>> alpha = W._finite_root_lattice.simple_roots()
+        >>> s_theta = W.reflection(alpha[1] + alpha[2])  # highest root of A2
+        """
+        w = self._reflection_on_weight_space(root)
+        return AffineWeylGroupSemidirectElement(self, w, self._zero_beta)
 
 
 @dataclass(frozen=True)
-class ExtendedAffineWeylGroupElement:
-    _group: ExtendedAffineWeylGroup
+class AffineWeylGroupSemidirectElement:
+    _group: AffineWeylGroupSemidirect
     _w: Any  # finite Weyl element acting on finite weight space
     _beta: Any  # coroot-space element
 
@@ -618,12 +666,14 @@ class ExtendedAffineWeylGroupElement:
         return f"{w_str} * t_{{{self._beta}}}"
 
     def __repr__(self) -> str:
-        return f"ExtendedAffineWeylGroupElement({str(self)})"
+        return f"AffineWeylGroupSemidirectElement({str(self)})"
 
-    def __mul__(self, other: "ExtendedAffineWeylGroupElement") -> "ExtendedAffineWeylGroupElement":
+    def __mul__(
+        self, other: "AffineWeylGroupSemidirectElement"
+    ) -> "AffineWeylGroupSemidirectElement":
         if self._group is not other._group:
             raise TypeError(
-                "Cannot multiply elements from different ExtendedAffineWeylGroup instances"
+                "Cannot multiply elements from different AffineWeylGroupSemidirect instances"
             )
 
         # (w1, b1) * (w2, b2) = (w1*w2, w2^{-1}(b1) + b2)
@@ -631,7 +681,7 @@ class ExtendedAffineWeylGroupElement:
         word2 = list(other._w.reduced_word())
         w2_coroot = self._group._W_coroot.from_reduced_word(word2)
         b_new = w2_coroot.inverse().action(self._beta) + other._beta
-        return ExtendedAffineWeylGroupElement(self._group, w_new, b_new)
+        return AffineWeylGroupSemidirectElement(self._group, w_new, b_new)
 
     def action(self, weight: Any) -> Any:
         from .affine_weight import AffineWeight
@@ -641,6 +691,349 @@ class ExtendedAffineWeylGroupElement:
             return self._w.action(weight)
 
         translated = self._group._translate_affine_weight(self._beta, weight)
+        new_finite = self._w.action(translated.finite_part)
+        return AffineWeight(weight.algebra, new_finite, translated.level, translated.grade)
+
+    __call__ = action
+
+
+class ExtendedAffineWeylGroup:
+    """Extended affine Weyl group implemented as a semidirect product W ⋉ P^∨.
+
+    This is the true extended affine Weyl group using the coweight lattice P^∨,
+    which is larger than the coroot lattice Q^∨ used in AffineWeylGroupSemidirect.
+
+    Mathematical Definition
+    -----------------------
+    - Affine Weyl group: W_aff = W ⋉ Q^∨ (coroot lattice)
+    - Extended affine Weyl group: W_ext = W ⋉ P^∨ (coweight lattice)
+    - Relationship: W_aff ⊆ W_ext, with quotient W_ext/W_aff ≅ P^∨/Q^∨ ≅ π₁(G)
+
+    Representation convention
+    -------------------------
+    An element is represented as (w, lambda) meaning **w * t_lambda**.
+    Action on an AffineWeight is:
+        (w, lambda).action(μ) = w.action( t_lambda(μ) )
+    Multiplication is:
+        (w1, λ1) * (w2, λ2) = (w1*w2, w2^{-1}(λ1) + λ2)
+
+    References
+    ----------
+    - Kac, V. G., "Infinite-dimensional Lie algebras" (3rd ed.), Chapter 6
+    - The quotient P^∨/Q^∨ is the fundamental group of the corresponding Lie group
+    """
+
+    def __init__(self, algebra: Any):
+        if not getattr(algebra, "is_affine", False):
+            raise ValueError("ExtendedAffineWeylGroup requires an affine algebra")
+
+        self._algebra = algebra
+        finite_rs = algebra._finite_root_system
+
+        self._finite_weight_space = finite_rs.weight_space(QQ)
+        self._finite_root_lattice = finite_rs.root_lattice()
+        self._finite_coweight_lattice = finite_rs.coweight_lattice()
+        self._finite_coroot_space = finite_rs.coroot_space(QQ)
+
+        self._W_weight = self._finite_weight_space.weyl_group()
+        self._W_root = self._finite_root_lattice.weyl_group()
+        self._W_coweight = self._finite_coweight_lattice.weyl_group()
+        self._W_coroot = self._finite_coroot_space.weyl_group()
+
+        self._zero_lambda = self._finite_coweight_lattice.zero()
+
+        self._theta_coroot = self._compute_theta_coroot()
+        self._s_theta_weight = self._compute_s_theta_on_weight_space()
+
+    def _translate_affine_weight(self, lambda_cw: Any, weight: Any) -> Any:
+        """Translate an AffineWeight by a coweight lambda.
+
+        This uses the coweight lattice P^∨ instead of coroot space Q^∨.
+        The translation formula is similar but uses coweights.
+        """
+
+        from .affine_weight import AffineWeight
+
+        if not isinstance(weight, AffineWeight):
+            raise TypeError("Translation action expects an AffineWeight")
+
+        lam = weight.finite_part
+        k = weight.level
+        n = weight.grade
+
+        # Convert coweight to ambient space for pairing computation
+        try:
+            lam_amb = lam.to_ambient()
+            lambda_amb = lambda_cw.to_ambient()
+            v_amb = lam_amb + k * lambda_amb
+
+            parent = lam.parent()
+            if not hasattr(parent, "fundamental_weights"):
+                raise AttributeError("finite_part parent has no fundamental_weights")
+            Lambda = parent.fundamental_weights()
+
+            A = lambda_amb.parent()
+            simple_coroots = A.simple_coroots()
+
+            new_lam = parent.zero()
+            for i, Lambda_i in Lambda.items():
+                if int(i) == 0:
+                    continue
+                coeff = v_amb.inner_product(simple_coroots[int(i)])
+                if coeff:
+                    new_lam += coeff * Lambda_i
+
+            pairing = lam_amb.inner_product(lambda_amb)
+            if hasattr(lambda_cw, "norm_squared"):
+                lambda_norm_sq = lambda_cw.norm_squared()
+            else:
+                lambda_norm_sq = lambda_amb.inner_product(lambda_amb)
+
+            new_n = n - pairing - k * QQ(lambda_norm_sq) / 2
+            return AffineWeight(weight.algebra, new_lam, k, new_n)
+        except Exception:
+            # Fallback
+            return self._algebra.translation(lambda_cw, weight)
+
+    @property
+    def algebra(self) -> Any:
+        return self._algebra
+
+    def __repr__(self) -> str:
+        return f"ExtendedAffineWeylGroup({self._algebra._cartan_type})"
+
+    def identity(self) -> "ExtendedAffineWeylGroupElement":
+        return ExtendedAffineWeylGroupElement(self, self._W_weight.one(), self._zero_lambda)
+
+    def theta_coroot(self) -> Any:
+        return self._theta_coroot
+
+    def translation(self, lambda_cw: Any) -> "ExtendedAffineWeylGroupElement":
+        """Create a translation element by a coweight.
+
+        Parameters
+        ----------
+        lambda_cw : coweight element from P^∨
+            The coweight to translate by.
+
+        Returns
+        -------
+        ExtendedAffineWeylGroupElement
+            Translation element t_lambda
+        """
+        lambda_cwl = self._coerce_to_coweight_lattice(lambda_cw)
+        return ExtendedAffineWeylGroupElement(self, self._W_weight.one(), lambda_cwl)
+
+    def simple_reflection(self, i: int) -> "ExtendedAffineWeylGroupElement":
+        if i == 0:
+            # s0 = s_theta * t_{-theta^vee}
+            # theta^vee is in Q^∨, need to convert to P^∨ using Cartan matrix
+            # α_i^∨ = Σ_j C_{ij} * Λ_j^∨ where C is the Cartan matrix
+
+            theta_in_coweight = self._coroot_to_coweight(self._theta_coroot)
+            return ExtendedAffineWeylGroupElement(self, self._s_theta_weight, -theta_in_coweight)
+
+        return ExtendedAffineWeylGroupElement(
+            self, self._W_weight.simple_reflection(i), self._zero_lambda
+        )
+
+    def _coroot_to_coweight(self, coroot: Any) -> Any:
+        """Convert a coroot (element of Q^∨) to the coweight lattice (P^∨).
+
+        Uses the relation: α_i^∨ = Σ_j C_{ij} * Λ_j^∨
+        where C is the Cartan matrix.
+        """
+        # Get Cartan matrix
+        C = self._algebra._finite_root_system.cartan_matrix()
+        coroot_coeffs = coroot.monomial_coefficients()
+        coweight_basis = self._finite_coweight_lattice.fundamental_weights()
+
+        result = self._zero_lambda
+        # For each simple coroot α_k^∨ with coefficient c_k in the input
+        for k, c_k in coroot_coeffs.items():
+            # α_k^∨ = Σ_j C_{kj} * Λ_j^∨
+            for j in coweight_basis.keys():
+                C_kj = C[int(k) - 1, int(j) - 1]  # Cartan matrix is 0-indexed
+                if C_kj != 0:
+                    result = result + coweight_basis[int(j)] * int(c_k * C_kj)
+        return result
+
+    def _coerce_to_coweight_lattice(self, lambda_cw: Any) -> Any:
+        """Coerce an element to the coweight lattice P^∨."""
+        if lambda_cw in (0, None):
+            return self._zero_lambda
+        if getattr(lambda_cw, "parent", lambda: None)() is self._finite_coweight_lattice:
+            return lambda_cw
+        try:
+            return self._finite_coweight_lattice(lambda_cw)
+        except Exception:
+            # Best-effort reconstruction
+            if hasattr(lambda_cw, "monomial_coefficients"):
+                coeffs = lambda_cw.monomial_coefficients()
+                basis = self._finite_coweight_lattice.fundamental_weights()
+                out = self._zero_lambda
+                for i, c in coeffs.items():
+                    out += c * basis[int(i)]
+                return out
+            raise
+
+    def _compute_theta_coroot(self) -> Any:
+        """Compute the highest coroot theta^∨."""
+        theta = self._finite_root_lattice.highest_root()
+        theta_vee = theta.associated_coroot()
+        return self._finite_coroot_space(theta_vee)
+
+    def _compute_s_theta_on_weight_space(self) -> Any:
+        """Compute reflection s_theta in the finite Weyl group."""
+        theta = self._finite_root_lattice.highest_root()
+        return self._reflection_on_weight_space(theta)
+
+    def _reflection_on_weight_space(self, root: Any) -> Any:
+        """Compute s_root in the finite Weyl group on weight space.
+
+        Given a root α in the root lattice, construct the reflection s_α by
+        conjugation: find u ∈ W and simple root α_j such that u(α_j) = α,
+        then s_α = u · s_j · u⁻¹.
+        """
+        root_rl = self._finite_root_lattice(root)
+        simple_roots = self._finite_root_lattice.simple_roots()
+
+        candidates = list(self._W_root)
+        for j, alpha_j in simple_roots.items():
+            for u in candidates:
+                if u.action(alpha_j) == root_rl:
+                    u_word = list(u.reduced_word())
+                    u_weight = self._W_weight.from_reduced_word(u_word)
+                    s_j_weight = self._W_weight.simple_reflection(int(j))
+                    return u_weight * s_j_weight * u_weight.inverse()
+
+        raise RuntimeError(f"Failed to construct s_({root}) in finite Weyl group")
+
+    def reflection(self, root: Any) -> "ExtendedAffineWeylGroupElement":
+        """Construct the Weyl reflection s_α for an arbitrary root α.
+
+        Given any root α in the finite root system, returns the element
+        (s_α, 0) of the semidirect product W ⋉ P∨.
+
+        Parameters
+        ----------
+        root : root lattice element
+            A root in the finite root lattice.
+
+        Returns
+        -------
+        ExtendedAffineWeylGroupElement
+            The reflection s_α as (s_α, 0).
+        """
+        w = self._reflection_on_weight_space(root)
+        return ExtendedAffineWeylGroupElement(self, w, self._zero_lambda)
+
+    def elements_as_semi_direct_product(
+        self, *, translation_bounds: Mapping[int, tuple[int, int]]
+    ) -> list["ExtendedAffineWeylGroupElement"]:
+        """Enumerate a bounded subset of W ⋉ P^∨.
+
+        Similar to AffineWeylGroupSemidirect.elements_as_semi_direct_product,
+        but uses the coweight lattice P^∨ instead of the coroot lattice Q^∨.
+
+        Parameters
+        ----------
+        translation_bounds:
+            Dict mapping simple coroot indices (1..rank) to (min,max) coefficients
+            for the fundamental coweights. Unspecified indices default to (0,0).
+
+        Returns
+        -------
+        list[ExtendedAffineWeylGroupElement]
+            Deterministic ordering: first all finite elements with zero translation,
+            then increasing translation (lexicographic coefficients) combined with
+            finite elements sorted by (length, reduced_word).
+        """
+        from itertools import product
+
+        idxs = list(self._finite_coweight_lattice.index_set())
+        ranges: list[range] = []
+        for i in idxs:
+            lo, hi = translation_bounds.get(int(i), (0, 0))
+            ranges.append(range(int(lo), int(hi) + 1))
+
+        finite_elts = list(self._W_weight)
+        finite_elts_sorted = sorted(
+            finite_elts, key=lambda w: (_sage_element_length(w), tuple(w.reduced_word()))
+        )
+
+        result: list[ExtendedAffineWeylGroupElement] = []
+        # Zero translation first.
+        for w in finite_elts_sorted:
+            result.append(ExtendedAffineWeylGroupElement(self, w, self._zero_lambda))
+
+        # Non-zero translations using fundamental coweights as basis
+        basis = self._finite_coweight_lattice.fundamental_weights()  # Λ_i^∨
+        for coeffs in product(*ranges):
+            if all(c == 0 for c in coeffs):
+                continue
+            lam = self._zero_lambda
+            for i, c in zip(idxs, coeffs, strict=True):
+                if c:
+                    lam += int(c) * basis[int(i)]
+            for w in finite_elts_sorted:
+                result.append(ExtendedAffineWeylGroupElement(self, w, lam))
+
+        return result
+
+
+@dataclass(frozen=True)
+class ExtendedAffineWeylGroupElement:
+    """Element of the extended affine Weyl group W ⋉ P^∨."""
+
+    _group: ExtendedAffineWeylGroup
+    _w: Any  # finite Weyl element acting on finite weight space
+    _lambda: Any  # coweight lattice element (P^∨)
+
+    @property
+    def finite_part(self) -> FiniteWeylGroupElement:
+        return FiniteWeylGroupElement(FiniteWeylGroup(self._group.algebra), self._w)
+
+    @property
+    def translation_vector(self) -> Any:
+        """Return the coweight translation vector (element of P^∨)."""
+        return self._lambda
+
+    def reduced_word(self) -> list[int]:
+        return list(self._w.reduced_word())
+
+    def __str__(self) -> str:
+        w_str = _reduced_word_str(self.reduced_word())
+        if self._lambda == self._group._zero_lambda:
+            return w_str
+        if not self.reduced_word():
+            return f"t_{{{self._lambda}}}"
+        return f"{w_str} * t_{{{self._lambda}}}"
+
+    def __repr__(self) -> str:
+        return f"ExtendedAffineWeylGroupElement({str(self)})"
+
+    def __mul__(self, other: "ExtendedAffineWeylGroupElement") -> "ExtendedAffineWeylGroupElement":
+        if self._group is not other._group:
+            raise TypeError(
+                "Cannot multiply elements from different ExtendedAffineWeylGroup instances"
+            )
+
+        # (w1, λ1) * (w2, λ2) = (w1*w2, w2^{-1}(λ1) + λ2)
+        w_new = self._w * other._w
+        word2 = list(other._w.reduced_word())
+        w2_coweight = self._group._W_coweight.from_reduced_word(word2)
+        lambda_new = w2_coweight.inverse().action(self._lambda) + other._lambda
+        return ExtendedAffineWeylGroupElement(self._group, w_new, lambda_new)
+
+    def action(self, weight: Any) -> Any:
+        from .affine_weight import AffineWeight
+
+        if not isinstance(weight, AffineWeight):
+            # Fallback to Sage's action when possible.
+            return self._w.action(weight)
+
+        translated = self._group._translate_affine_weight(self._lambda, weight)
         new_finite = self._w.action(translated.finite_part)
         return AffineWeight(weight.algebra, new_finite, translated.level, translated.grade)
 

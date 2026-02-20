@@ -148,6 +148,9 @@ class AdmissibleWeight:
             2. The extended weight space (for fractional weights)
             3. The affine Weyl group
             4. The affine Weyl vector ρ̂
+
+        If the input weight is a pyw AffineWeight, it is automatically
+        converted to the SageMath extended weight space representation.
         """
         # Initialize root system and weight space
         self._root_system = RootSystem(self.cartan_type)
@@ -156,11 +159,55 @@ class AdmissibleWeight:
         # Initialize affine Weyl group
         self._weyl_group = AffineWeylGroup(self.cartan_type)
 
+        # Convert pyw AffineWeight to SageMath extended weight space element
+        self._convert_weight_if_needed()
+
         # Compute affine Weyl vector
         self._rho_hat = self._compute_affine_weyl_vector()
 
         # Cache coroots for efficiency
         self._cache_coroots()
+
+    def _convert_weight_if_needed(self) -> None:
+        """
+        Convert a pyw AffineWeight to a SageMath extended weight space element.
+
+        The AffineWeight (λ; k; n) is converted by:
+        1. Computing λ₀ = k - Σ aᵢ λᵢ (where aᵢ are comarks of the finite part)
+        2. Building the affine weight λ₀ Λ₀ + Σᵢ λᵢ Λᵢ in the extended weight space
+
+        Notes
+        -----
+        The grade (n) component is discarded since the admissibility conditions
+        only depend on the pairing (λ + ρ̂ | α^∨), which is independent of n.
+        """
+        from pyw.core.affine_weight import AffineWeight as AW
+
+        if not isinstance(self.weight, AW):
+            return
+
+        aw = self.weight
+        Lambda = self._weight_space.fundamental_weights()
+
+        # Get finite part Dynkin labels
+        mc = aw.finite_part.monomial_coefficients()
+
+        # Compute λ₀ = k - Σ aᵢ λᵢ (comarks * finite Dynkin labels)
+        comarks = aw.algebra.get_comarks()
+        finite_index_set = aw.algebra._finite_root_system.weight_space().index_set()
+        finite_sum = sum(
+            QQ(comarks.get(i, 0)) * QQ(mc.get(i, 0)) for i in finite_index_set
+        )
+        lambda_0 = QQ(aw.level) - finite_sum
+
+        # Build weight in extended weight space: λ₀ Λ₀ + Σᵢ λᵢ Λᵢ
+        sage_weight = lambda_0 * Lambda[0]
+        for i in finite_index_set:
+            coeff = QQ(mc.get(i, 0))
+            if coeff != 0:
+                sage_weight += coeff * Lambda[i]
+
+        self.weight = sage_weight
 
     def _compute_affine_weyl_vector(self) -> Any:
         """

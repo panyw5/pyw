@@ -235,7 +235,12 @@ class TestSpecialElements:
         """Test δ = (0; 0; 1)."""
         ala = AffineLieAlgebra(["A", 2, 1])
         delta = ala.delta()
-        assert delta == (0, 0, 1)
+        # delta() now returns an AffineWeight object
+        assert isinstance(delta, AffineWeight)
+        assert delta.level == 0
+        assert delta.grade == 1
+        # Check that finite part is zero
+        assert delta.finite_part.is_zero()
 
     def test_theta(self):
         """Test highest root θ for A₂ is α₁ + α₂."""
@@ -300,6 +305,55 @@ class TestLevelAndDynkin:
         assert ala.is_dominant({0: 0, 1: 1, 2: 1})
         assert not ala.is_dominant({0: -1, 1: 1, 2: 1})
         assert not ala.is_dominant({0: 1, 1: -1, 2: 0})
+
+
+class TestFiniteLieAlgebra:
+    """Test the finite_lie_algebra property."""
+
+    def test_affine_returns_finite(self):
+        """Affine type returns a finite AffineLieAlgebra instance."""
+        ala = AffineLieAlgebra(["A", 2, 1])
+        g = ala.finite_lie_algebra
+        assert isinstance(g, AffineLieAlgebra)
+        assert g.is_finite
+        assert not g.is_affine
+        assert g.rank == 2
+
+    def test_finite_returns_self(self):
+        """Finite type returns self."""
+        ala = AffineLieAlgebra(["A", 2])
+        assert ala.finite_lie_algebra is ala
+
+    def test_cached(self):
+        """Repeated access returns the same instance."""
+        ala = AffineLieAlgebra(["B", 3, 1])
+        g1 = ala.finite_lie_algebra
+        g2 = ala.finite_lie_algebra
+        assert g1 is g2
+
+    def test_various_types(self):
+        """Test for several Cartan types."""
+        for ct, expected_rank in [
+            (["B", 3, 1], 3),
+            (["C", 4, 1], 4),
+            (["D", 5, 1], 5),
+            (["G", 2, 1], 2),
+            (["F", 4, 1], 4),
+            (["E", 6, 1], 6),
+        ]:
+            ala = AffineLieAlgebra(ct)
+            g = ala.finite_lie_algebra
+            assert g.is_finite
+            assert g.rank == expected_rank, f"Failed for {ct}"
+
+    def test_finite_scalar_product_matches(self):
+        """The finite algebra's scalar product is consistent."""
+        ala = AffineLieAlgebra(["A", 2, 1])
+        g = ala.finite_lie_algebra
+        Lambda = g.fundamental_weights()
+        # (Λ₁, Λ₁) for finite A₂
+        result = g.scalar_product(Lambda[1], Lambda[1])
+        assert result == QQ((2, 3))
 
 
 class TestConvenienceFunctions:

@@ -180,44 +180,52 @@ class AffineRootSystem:
         return self._simple_coroots
 
     @property
+    def rank(self) -> int:
+        """
+        Get the rank of the root system.
+
+        Returns:
+            The rank (number of simple roots) as an integer
+
+        Notes:
+            For finite types, rank = n (e.g., A_n has rank n)
+            For affine types, rank = n+1 (e.g., A_n^(1) has rank n+1)
+        """
+        return self.root_system.cartan_type().rank()
+
+    @property
     def dual_coxeter_number(self) -> Union[int, None]:
         """
-        Get the dual Coxeter number g^\vee.
+        Get the dual Coxeter number g^\vee (also denoted h^\vee).
 
         Returns:
             The dual Coxeter number as an integer, or None if not defined
 
         Notes:
-            The dual Coxeter number g^\vee is defined as the scalar k
-            such that θ(H_0) = k where θ is the highest root and H_0 is the
-            0-th simple coroot.
-
-            For finite types, this equals the Coxeter number h.
-            For affine types, g^\vee can be computed from the Cartan matrix.
+            The dual Coxeter number g^\vee is defined as:
+            - For finite types: g^\vee = h^\vee (dual Coxeter number)
+            - For affine types: g^\vee = sum of dual comarks a_i^\vee
+              where theta^\vee = sum a_i^\vee alpha_i^\vee
 
         References:
-            Kac, V. G. "Infinite Dimensional Lie Algebras", Lemma 4.8
+            Kac, V. G. "Infinite Dimensional Lie Algebras" (3rd ed.), Table Aff 1-3
         """
         if self._dual_coxeter_number is None:
             try:
-                # Try to compute from the Cartan matrix
-                # For affine types, the dual Coxeter number can be read from
-                # the last column of the extended Cartan matrix
-                cm = self.cartan_matrix
+                cartan_type = self.root_system.cartan_type()
 
-                # Check if it's an affine type (has an extra row/column)
-                if cm.ncols() > cm.nrows() or cm.nrows() > cm.ncols():
-                    # For affine, find the coefficient such that sum over all
-                    # simple coroots with the minimal imaginary root gives the dual number
-                    # A simpler approach: use the distinguished node
-                    self._dual_coxeter_number = int(cm[0, -1])
+                # Try to get dual_coxeter_number directly from cartan_type
+                if hasattr(cartan_type, "dual_coxeter_number"):
+                    self._dual_coxeter_number = int(cartan_type.dual_coxeter_number())
+                # For affine types: sum of dual comarks acheck()
+                elif hasattr(cartan_type, "acheck"):
+                    acheck = cartan_type.acheck()
+                    self._dual_coxeter_number = int(sum(acheck[i] for i in acheck.keys()))
+                # Fallback: Try coxeter_number for finite types
+                elif hasattr(cartan_type, "coxeter_number"):
+                    self._dual_coxeter_number = int(cartan_type.coxeter_number())
                 else:
-                    # For finite types, compute Coxeter number
-                    try:
-                        self._dual_coxeter_number = int(self.root_system.coxeter_number())
-                    except AttributeError:
-                        # Fallback: compute from sum of coefficients in highest root
-                        self._dual_coxeter_number = None
+                    self._dual_coxeter_number = None
             except Exception:
                 self._dual_coxeter_number = None
 

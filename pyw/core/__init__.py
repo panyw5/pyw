@@ -17,6 +17,9 @@ from .affine_weight import (
     affine_weight,
     from_dynkin_labels,
 )
+from .bruhat import BruhatOrder, ParabolicSubgroup, CosetRepresentative
+from .kazhdan_lusztig import KazhdanLusztigPolynomials
+from .character import FormalCharacter, WeylKacDenominator, VermaCharacter
 
 __all__ = [
     "AffineRootSystem",
@@ -31,4 +34,13 @@ __all__ = [
     "AffineWeight",
     "affine_weight",
     "from_dynkin_labels",
+    # Bruhat order and Kazhdan-Lusztig
+    "BruhatOrder",
+    "ParabolicSubgroup",
+    "CosetRepresentative",
+    "KazhdanLusztigPolynomials",
+    # Character computation
+    "FormalCharacter",
+    "WeylKacDenominator",
+    "VermaCharacter",
 ]

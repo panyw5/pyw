@@ -148,14 +148,15 @@ class BoundaryAdmissibleWeights:
 
         For affine sl(2) with highest weight having finite part aω (Dynkin label a):
             h(a) = |a|(|a| + 2) * (ω, ω) / (2 * (k + h^∨))
-                 = 3 * |a| * (|a| + 2) / 8  (for k + h^∨ = 2/3, (ω, ω) = 1/2)
+                 = |a|(|a| + 2) / (4 * (k + h^∨))  (using (ω, ω) = 1/2 for sl(2))
 
         The weights Λ(m) have Dynkin labels a_m = -2m/u (negative, in antidominant chamber).
         The conformal dimension uses |a_m| = 2m/u.
 
-        m=0: a = 0          → h = 0
-        m=1: a = -2/3       → h = 2/3
-        m=2: a = -4/3       → h = 5/3
+        For k = -4/3 (i.e., k + h^∨ = 2/3):
+            m=0: a = 0          → h = 0
+            m=1: a = -2/3       → h = 2/3
+            m=2: a = -4/3       → h = 5/3
 
         Returns
         -------
@@ -170,10 +171,12 @@ class BoundaryAdmissibleWeights:
 
             # Conformal dimension formula for sl(2):
             # h(|a|) = |a|(|a| + 2) * (ω, ω) / (2 * (k + h^∨))
-            # With k + h^∨ = p/u and (ω, ω) = 1/2:
-            # h = u * |a| * (|a| + 2) / (2p) = 3 * |a| * (|a| + 2) / 8
+            # With (ω, ω) = 1/2 for sl(2):
+            # h = |a|(|a| + 2) / (4 * (k + h^∨))
+            # With k + h^∨ = p/u:
+            # h = u * |a| * (|a| + 2) / (4p)
 
-            h_val = self.u * a_abs * (a_abs + 2) / (2 * self.p)
+            h_val = self.u * a_abs * (a_abs + 2) / (4 * self.p)
 
             dimensions.append(Fraction(h_val).limit_denominator())
 
