@@ -1,12 +1,13 @@
 """Tests for quantum DS reduction MVP workflow."""
 
 from fractions import Fraction
+from typing import cast
 
 import pytest
-from sage.all import CC, I, QQ
+from sage.all import CC, QQ, I
 
-from pyw.utils.theta_functions import sl2_boundary_character
 from pyw.fractional.level import FractionalLevel
+from pyw.utils.theta_functions import sl2_boundary_character
 from pyw.walgebra import (
     LinearNonDegeneracyCondition,
     PrincipalAdmissibleLevelInput,
@@ -162,6 +163,8 @@ def test_workflow_exposes_truncated_brs_cohomology_dimensions():
     assert c0.reduction_grade == 0
     assert c0.cohomology_h0_dim == 0
     assert c0.cohomology_h1_dim == 0
+    assert c0.cohomology_by_grade == ((0, 0),)
+    assert c0.cohomology_hq_by_grade == ((0, (0, 0)),)
     assert c0.survives_reduction is False
 
     # non-vacuum candidate with label 1 survives via nontrivial H^0
@@ -169,6 +172,8 @@ def test_workflow_exposes_truncated_brs_cohomology_dimensions():
     assert c1.reduction_grade == 2
     assert c1.cohomology_h0_dim == 1
     assert c1.cohomology_h1_dim == 1
+    assert c1.cohomology_by_grade == ((1, 1),)
+    assert c1.cohomology_hq_by_grade == ((0, (1, 1)),)
     assert c1.survives_reduction is True
 
 
@@ -185,3 +190,95 @@ def test_phase15_brs_nilpotency_check_passes_on_nontrivial_block():
     assert len(result.all_candidates) > 0
     assert all(c.cohomology_h0_dim >= 0 for c in result.all_candidates)
     assert all(c.cohomology_h1_dim >= 0 for c in result.all_candidates)
+
+
+def test_phase2a_plumbing_accepts_cohomology_max_grade_parameter():
+    """Phase 2a entry-point exposes cohomology_max_grade without breaking results."""
+    base = quantum_ds_reduction_workflow(
+        cartan_type="A",
+        rank=1,
+        partition=[2],
+        level_input=PrincipalAdmissibleLevelInput(p=4, u=3),
+        cohomology_max_grade=0,
+    )
+    result = quantum_ds_reduction_workflow(
+        cartan_type="A",
+        rank=1,
+        partition=[2],
+        level_input=PrincipalAdmissibleLevelInput(p=4, u=3),
+        cohomology_max_grade=2,
+    )
+
+    assert all(c.cohomology_computed_upto_grade == 2 for c in result.all_candidates)
+
+    by_labels_base = {m.candidate.finite_dynkin_labels: m.candidate for m in base.all_modules}
+    by_labels_ext = {m.candidate.finite_dynkin_labels: m.candidate for m in result.all_modules}
+
+    # Extended grade truncation should not reduce aggregated cohomology dimensions.
+    for labels in by_labels_base:
+        assert by_labels_ext[labels].cohomology_h0_dim >= by_labels_base[labels].cohomology_h0_dim
+        assert by_labels_ext[labels].cohomology_h1_dim >= by_labels_base[labels].cohomology_h1_dim
+
+        # Grade-by-grade bookkeeping should sum back to total dimensions.
+        c = by_labels_ext[labels]
+        assert len(c.cohomology_by_grade) == 3
+        assert sum(v[0] for v in c.cohomology_by_grade) == c.cohomology_h0_dim
+        assert sum(v[1] for v in c.cohomology_by_grade) == c.cohomology_h1_dim
+
+
+def test_phase2a_uses_ghost_fock_grade_multiplicity_model():
+    """sl2 principal case follows ghost-Fock multiplicity profile at N<=2."""
+    result = quantum_ds_reduction_workflow(
+        cartan_type="A",
+        rank=1,
+        partition=[2],
+        level_input=PrincipalAdmissibleLevelInput(p=4, u=3),
+        cohomology_max_grade=2,
+    )
+
+    by_labels = {m.candidate.finite_dynkin_labels: m.candidate for m in result.all_modules}
+    c1 = by_labels[(1,)]
+    assert c1.cohomology_by_grade == ((1, 1), (2, 2), (3, 3))
+    assert c1.cohomology_hq_by_grade == ((0, (1, 1)), (1, (2, 2)), (2, (3, 3)))
+
+
+def test_phase2a_hq_output_matches_grade_output_on_nontrivial_d1_case():
+    """H^q_N output should be consistent with per-grade output on rank>1 path."""
+    result = quantum_ds_reduction_workflow(
+        cartan_type="A",
+        rank=3,
+        partition=[3, 1],
+        level_input=PrincipalAdmissibleLevelInput(p=5, u=2),
+        cohomology_max_grade=1,
+    )
+
+    for candidate in result.all_candidates:
+        assert len(candidate.cohomology_by_grade) == 2
+        assert len(candidate.cohomology_hq_by_grade) == 2
+        assert candidate.cohomology_hq_by_grade == tuple(
+            (n, candidate.cohomology_by_grade[n]) for n in range(2)
+        )
+
+
+def test_phase2a_plumbing_rejects_negative_cohomology_max_grade():
+    """Negative cohomology truncation grade should be rejected."""
+    with pytest.raises(ValueError, match="cohomology_max_grade"):
+        quantum_ds_reduction_workflow(
+            cartan_type="A",
+            rank=1,
+            partition=[2],
+            level_input=PrincipalAdmissibleLevelInput(p=4, u=3),
+            cohomology_max_grade=-1,
+        )
+
+
+def test_phase2a_plumbing_rejects_non_integer_cohomology_max_grade():
+    """Non-integer cohomology truncation grade should be rejected."""
+    with pytest.raises(ValueError, match="cohomology_max_grade"):
+        quantum_ds_reduction_workflow(
+            cartan_type="A",
+            rank=1,
+            partition=[2],
+            level_input=PrincipalAdmissibleLevelInput(p=4, u=3),
+            cohomology_max_grade=cast(int, 1.5),
+        )

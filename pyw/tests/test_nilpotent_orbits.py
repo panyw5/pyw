@@ -8,6 +8,7 @@ Correctness is verified against known results from:
 import pytest
 
 from pyw.algorithms.nilpotent_orbits import (
+    LeviSubalgebra,
     NilpotentOrbit,
     nilpotent_orbits,
     nilpotent_orbit_table,
@@ -230,6 +231,45 @@ class TestOrbitStructure:
         for o in orbits:
             r = repr(o)
             assert "NilpotentOrbit" in r
+
+
+class TestLeviAndRegularity:
+    def test_levi_subalgebra_access(self):
+        principal = nilpotent_orbits("A", 3)[-1]
+        levi = principal.regular_levi()
+        assert isinstance(levi, LeviSubalgebra)
+        assert levi.lie_type == ("A", 3)
+        assert levi.rank == 3
+        assert len(levi.roots) == 12
+        assert levi.dimension == 15
+
+    def test_orbit_is_regular_in_own_levi_principal(self):
+        principal = nilpotent_orbits("A", 3)[-1]
+        assert principal.is_regular_in() is True
+
+    def test_orbit_zero_not_regular_in_own_levi(self):
+        zero = nilpotent_orbits("A", 3)[0]
+        assert zero.is_regular_in() is False
+
+    def test_orbit_is_regular_in_explicit_levi(self):
+        principal = nilpotent_orbits("A", 3)[-1]
+        subregular = nilpotent_orbits("A", 3)[-2]
+        subregular_levi = subregular.levi_subalgebra()
+        assert principal.is_regular_in(subregular_levi) is False
+
+    def test_levi_contains_and_regular_element(self):
+        principal = nilpotent_orbits("A", 3)[-1]
+        levi = principal.regular_levi()
+        f = principal.sl2_triple().f
+        assert levi.contains_element(f) is True
+        assert levi.is_regular(f) is True
+
+    def test_levi_regular_element_false_for_zero(self):
+        zero = nilpotent_orbits("A", 3)[0]
+        levi = zero.regular_levi()
+        f0 = zero.sl2_triple().f
+        assert levi.contains_element(f0) is True
+        assert levi.is_regular(f0) is False
 
 
 # =========================================================================

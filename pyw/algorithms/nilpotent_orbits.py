@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 from sage.all import Partitions
 
@@ -264,6 +264,63 @@ class NilpotentOrbit:
 
         wdd = self.weighted_dynkin_diagram()
         return root_space_grading(self.lie_type, wdd)
+
+    def levi_subalgebra(self) -> LeviSubalgebra:
+        r"""Return the Levi subalgebra corresponding to this orbit.
+
+        The Levi is computed from an ``sl_2``-triple by
+
+        $$
+        \mathfrak{h}^f = \{h \in \mathfrak{h} \mid [h,f]=0\},
+        \qquad
+        \Delta_\mathfrak{l} = \{\alpha \in \Delta \mid \alpha|_{\mathfrak{h}^f}=0\}.
+        $$
+
+        Returns
+        -------
+        LeviSubalgebra
+            Levi descriptor with root subsystem ``Delta_l``.
+        """
+        triple = self.sl2_triple()
+        return LeviSubalgebra(lie_type=self.lie_type, roots=triple.delta_l())
+
+    def regular_levi(self) -> LeviSubalgebra:
+        """Return the canonical Levi attached to this orbit."""
+        return self.levi_subalgebra()
+
+    def is_regular_in(self, levi: Optional[LeviSubalgebra] = None) -> bool:
+        r"""Check whether this orbit is regular in a chosen Levi subalgebra.
+
+        Parameters
+        ----------
+        levi : LeviSubalgebra, optional
+            Levi to test against. If omitted, use orbit's corresponding Levi.
+
+        Returns
+        -------
+        bool
+            ``True`` iff a representative ``f`` of this orbit is regular in
+            the Levi, i.e. ``dim Z_l(f) = rank(l)``.
+        """
+        triple = self.sl2_triple()
+        if levi is None:
+            levi = self.regular_levi()
+        if tuple(levi.lie_type) != tuple(self.lie_type):
+            raise ValueError(f"Levi type {levi.lie_type} does not match orbit type {self.lie_type}")
+        return levi.is_regular_element(triple.f)
+
+    def is_regular(
+        self, levi_subalgebra: Optional[Union[LeviSubalgebra, Sequence[Any]]] = None
+    ) -> bool:
+        """Alias of :meth:`is_regular_in` for concise API usage."""
+
+        if levi_subalgebra is None:
+            return self.is_regular_in()
+        if isinstance(levi_subalgebra, LeviSubalgebra):
+            return self.is_regular_in(levi=levi_subalgebra)
+        return self.is_regular_in(
+            levi=LeviSubalgebra(lie_type=self.lie_type, roots=list(levi_subalgebra))
+        )
 
     def __repr__(self) -> str:
         return (
@@ -509,3 +566,90 @@ def nilpotent_orbit_table(
             f"  {i:>3}  {orb.label:<20} {orb.dimension:>5}   {str(orb.transpose):<20} {flag_str}"
         )
     return "\n".join(lines)
+
+
+@dataclass
+class LeviSubalgebra:
+    """Levi subalgebra data attached to a nilpotent orbit.
+
+    The Levi is encoded by its root subsystem
+    ``Delta_l = {alpha in Delta | alpha|_{h^f} = 0}`` and always contains
+    the full Cartan subalgebra of the ambient Lie algebra.
+    """
+
+    lie_type: Tuple[str, int]
+    roots: List[Any] = field(default_factory=list)
+
+    @property
+    def rank(self) -> int:
+        """Rank of the Levi subalgebra (same as ambient rank)."""
+        return int(self.lie_type[1])
+
+    @property
+    def dimension(self) -> int:
+        """Dimension of Levi: ``rank + |Delta_l|``."""
+        return self.rank + len(self.roots)
+
+    def contains_element(self, element: Any) -> bool:
+        """Return whether an ambient Lie algebra element lies in this Levi."""
+        from sage.all import LieAlgebra, QQ, RootSystem
+
+        letter, n = self.lie_type
+        L = LieAlgebra(QQ, cartan_type=[letter, n])
+        B = L.basis()
+        rl = RootSystem([letter, n]).root_lattice()
+        alpha_check = rl.simple_coroots()
+
+        allowed = set(self.roots)
+        for i in range(1, n + 1):
+            allowed.add(alpha_check[i])
+
+        coeffs = element.monomial_coefficients()
+        return all((c == 0) or (k in allowed) for k, c in coeffs.items())
+
+    def centralizer_dimension(self, element: Any) -> int:
+        """Return ``dim Z_l(element)`` where ``l`` is this Levi."""
+        from sage.all import LieAlgebra, Matrix, QQ, RootSystem
+
+        letter, n = self.lie_type
+        L = LieAlgebra(QQ, cartan_type=[letter, n])
+        B = L.basis()
+        rl = RootSystem([letter, n]).root_lattice()
+        alpha_check = rl.simple_coroots()
+
+        levi_basis = [B[alpha_check[i]] for i in range(1, n + 1)]
+        for root in self.roots:
+            levi_basis.append(B[root])
+
+        ambient_keys = sorted(B.keys(), key=str)
+        rows = []
+        for key in ambient_keys:
+            rows.append(
+                [L.bracket(b, element).monomial_coefficients().get(key, 0) for b in levi_basis]
+            )
+
+        M = Matrix(QQ, rows)
+        return int(M.right_kernel().dimension())
+
+    def is_regular_element(self, element: Any, *, require_nilpotent: bool = True) -> bool:
+        r"""Check if ``element`` is regular in this Levi.
+
+        Regular means ``dim Z_l(element) = rank(l)``.
+        """
+        if not self.contains_element(element):
+            return False
+
+        if require_nilpotent:
+            is_nilpotent_fn = getattr(element, "is_nilpotent", None)
+            if callable(is_nilpotent_fn):
+                try:
+                    if not bool(is_nilpotent_fn()):
+                        return False
+                except Exception:
+                    pass
+
+        return self.centralizer_dimension(element) == self.rank
+
+    def is_regular(self, element: Any, *, require_nilpotent: bool = True) -> bool:
+        """Alias of :meth:`is_regular_element` for concise API usage."""
+        return self.is_regular_element(element, require_nilpotent=require_nilpotent)

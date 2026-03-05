@@ -17,7 +17,7 @@ from fractions import Fraction
 from itertools import product
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
-from sage.all import CartanType, LieAlgebra, Matrix, QQ
+from sage.all import QQ, CartanType, LieAlgebra, Matrix
 
 from pyw.algorithms.nilpotent_orbits import NilpotentOrbit, nilpotent_orbits
 from pyw.embedding.sl2_triple import RootSpaceGrading, SL2Triple
@@ -102,9 +102,12 @@ class AdmissibleWeightCandidate:
     lambda0_coeff: int
     affine_level: int
     reduction_grade: int
-    cohomology_h0_dim: int
-    cohomology_h1_dim: int
-    survives_reduction: bool
+    cohomology_computed_upto_grade: int = 0
+    cohomology_h0_dim: int = 0
+    cohomology_h1_dim: int = 0
+    cohomology_by_grade: Tuple[Tuple[int, int], ...] = ((0, 0),)
+    cohomology_hq_by_grade: Tuple[Tuple[int, Tuple[int, int]], ...] = ((0, (0, 0)),)
+    survives_reduction: bool = False
 
 
 @dataclass(frozen=True)
@@ -240,6 +243,7 @@ def _compute_reduction_candidates(
     affine_level: int,
     weighted_dynkin: Sequence[int],
     reduction_data: ReductionData,
+    cohomology_max_grade: int = 0,
     nondegeneracy_conditions: Optional[Sequence[LinearNonDegeneracyCondition]] = None,
 ) -> List[AdmissibleWeightCandidate]:
     """Build candidates and compute phase-1 BRST cohomology at grade ``N=0``.
@@ -297,96 +301,209 @@ def _compute_reduction_candidates(
                 support[idx] = 1
         return support
 
-    def _compute_n0_brs_cohomology(labels: Sequence[int]) -> Tuple[int, int]:
-        # Phase 1.5 keeps only the N=0 block of the BRST complex from FKW §2.3:
-        #   C(M) = M \otimes \Lambda, with differential d = d_st + p
-        # Here we model the first three ghost-number pieces C^0 -> C^1 -> C^2.
-        roots = _positive_roots_in_greater_than_zero()
-        dim_c0 = 1
-        dim_c1 = len(roots)
+    def _ghost_grade_multiplicities(num_root_ghosts: int, max_grade: int) -> List[int]:
+        """Return truncated ghost Fock multiplicities by conformal grade.
 
-        if dim_c1 == 0:
-            return 1, 0
+        Phase-2a uses a mode-counting model inspired by the ghost sector in
+        FKW Eq. (3.1.7): for each positive root there are two fermionic ghost
+        species with mode energies ``m >= 1``. At fixed energy ``m``, each
+        species can be occupied at most once, so the generating factor is
 
-        # C^2 basis: ordered pairs (i, j), i < j
+            (1 + q^m) ** (2 * num_root_ghosts).
+
+        This function extracts coefficients up to ``q^max_grade``.
+        """
+        if max_grade < 0:
+            raise ValueError("max_grade must be non-negative")
+        coeff = [0] * (max_grade + 1)
+        coeff[0] = 1
+
+        species_count = 2 * num_root_ghosts
+        for mode_energy in range(1, max_grade + 1):
+            for _ in range(species_count):
+                for grade in range(max_grade, mode_energy - 1, -1):
+                    coeff[grade] += coeff[grade - mode_energy]
+        return coeff
+
+    def _repeat_block_diagonal(base: Matrix, times: int) -> Matrix:
+        """Construct block-diagonal matrix with ``times`` copies of ``base``."""
+        if times < 0:
+            raise ValueError("times must be non-negative")
+        if times == 0:
+            return Matrix(QQ, 0, 0, [])
+        if times == 1:
+            return base
+
+        r = base.nrows()
+        c = base.ncols()
+        out = Matrix(QQ, r * times, c * times, 0)
+        for blk in range(times):
+            ro = blk * r
+            co = blk * c
+            for i in range(r):
+                for j in range(c):
+                    val = base[i, j]
+                    if val != 0:
+                        out[ro + i, co + j] = val
+        return out
+
+    def _build_d1_base(roots: Sequence[Any]) -> Matrix:
+        """Build N=0 base differential d1: C^1 -> C^2 from Lie brackets."""
+        dim_c1_base = len(roots)
         pairs: List[Tuple[int, int]] = []
-        for i in range(dim_c1):
-            for j in range(i + 1, dim_c1):
+        for i in range(dim_c1_base):
+            for j in range(i + 1, dim_c1_base):
                 pairs.append((i, j))
         pair_to_row = {pair: row for row, pair in enumerate(pairs)}
-        dim_c2 = len(pairs)
+        dim_c2_base = len(pairs)
+
+        if dim_c2_base == 0:
+            return Matrix(QQ, 0, dim_c1_base, [])
+
+        d1_base = Matrix(QQ, dim_c2_base, dim_c1_base, [0] * (dim_c2_base * dim_c1_base))
+        lie_alg = LieAlgebra(QQ, cartan_type=["A", rank])
+        basis = lie_alg.basis()
+
+        # FKW §2.2: structure-constant (cubic ghost) term in d_st.
+        for alpha_col, alpha in enumerate(roots):
+            for i in range(dim_c1_base):
+                for j in range(i + 1, dim_c1_base):
+                    beta = roots[i]
+                    gamma = roots[j]
+                    bracket = lie_alg.bracket(basis[beta], basis[gamma])
+                    coeff = bracket.monomial_coefficients().get(alpha, 0)
+                    if coeff != 0:
+                        row = pair_to_row[(i, j)]
+                        d1_base[row, alpha_col] -= coeff
+        return d1_base
+
+    # Phase 2a: compute BRST cohomology for all blocks 0 <= N <= Nmax in one pass.
+    def _compute_truncated_brs_cohomology(
+        labels: Sequence[int],
+        max_grade: int,
+        roots: Sequence[Any],
+        d1_base: Matrix,
+        rank_d1_base: int,
+    ) -> Tuple[int, int, Tuple[Tuple[int, int], ...]]:
+        if max_grade < 0:
+            raise ValueError("cohomology_max_grade must be non-negative")
+
+        # Base N=0 BRST block dimensions.
+        dim_c0_base = 1
+        dim_c1_base = len(roots)
+
+        if dim_c1_base == 0:
+            by_grade = tuple((1 if n == 0 else 0, 0) for n in range(max_grade + 1))
+            return sum(v[0] for v in by_grade), 0, by_grade
 
         chi_support = _chi_simple_support()
 
-        # d0: C^0 -> C^1.
-        # The shift by chi corresponds to the character term p_\pm in FKW
-        # (see Eq. (2.1.1) and d_\pm = d_st^\pm + p_\pm around Eq. (2.2.1)- (2.2.2) block).
         d0_entries: List[Fraction] = []
         for root in roots:
             idx = _simple_root_index(root)
             if idx is None:
                 d0_entries.append(Fraction(0, 1))
                 continue
-
-            # Type A uses simple-root indices 1..rank in Dynkin labels tuple.
             label_val = int(labels[idx - 1]) if 1 <= idx <= rank else 0
             coeff = Fraction(label_val - chi_support.get(idx, 0), 1)
             d0_entries.append(coeff)
 
-        d0 = Matrix(QQ, dim_c1, dim_c0, d0_entries)
+        d0_base = Matrix(QQ, dim_c1_base, dim_c0_base, d0_entries)
 
-        # d1: C^1 -> C^2.
-        # We now use actual Lie brackets [e_beta, e_gamma] = sum c_{beta,gamma}^alpha e_alpha
-        # from Sage's Chevalley basis, matching the structure-constant term in
-        # d_st (FKW Eq. for d_st^\pm(z), cubic ghost term).
-        if dim_c2 == 0:
-            d1 = Matrix(QQ, 0, dim_c1, [])
-        else:
-            d1 = Matrix(QQ, dim_c2, dim_c1, [0] * (dim_c2 * dim_c1))
-            lie_alg = LieAlgebra(QQ, cartan_type=["A", rank])
-            basis = lie_alg.basis()
+        # Base nilpotency check.
+        comp0 = d1_base * d0_base
+        if any(comp0[r, c] != 0 for r in range(comp0.nrows()) for c in range(comp0.ncols())):
+            raise ValueError("Phase-2a base BRST nilpotency check failed: d1*d0 != 0 at N=0")
 
-            for alpha_col, alpha in enumerate(roots):
-                for i in range(dim_c1):
-                    for j in range(i + 1, dim_c1):
-                        beta = roots[i]
-                        gamma = roots[j]
-                        bracket = lie_alg.bracket(basis[beta], basis[gamma])
-                        coeff = bracket.monomial_coefficients().get(alpha, 0)
-                        if coeff != 0:
-                            row = pair_to_row[(i, j)]
-                            d1[row, alpha_col] -= coeff
+        rank_d0_base = int(d0_base.rank())
+        dim_h0_base = dim_c0_base - rank_d0_base
+        dim_h1_base = (dim_c1_base - rank_d1_base) - rank_d0_base
+        if dim_h1_base < 0:
+            raise ValueError("Invalid base BRST block: negative H^1 at N=0")
 
-        # Nilpotency check for this finite block: d1 * d0 must vanish.
-        # This is the matrix-level shadow of d^2 = 0 in BRST theory.
-        composed = d1 * d0
-        if any(
-            composed[r, c] != 0 for r in range(composed.nrows()) for c in range(composed.ncols())
-        ):
-            raise ValueError("Phase-1.5 BRST nilpotency check failed: d1*d0 != 0")
+        total_h0 = 0
+        total_h1 = 0
+        by_grade_list: List[Tuple[int, int]] = []
+        ghost_mult = _ghost_grade_multiplicities(num_root_ghosts=dim_c1_base, max_grade=max_grade)
 
-        rank_d0 = int(d0.rank())
-        rank_d1 = int(d1.rank())
+        for grade_n in range(max_grade + 1):
+            # FKW §3.2 decomposition idea: compute each L0 block separately.
+            # Multiplicity comes from truncated ghost Fock counting.
+            mult = ghost_mult[grade_n]
 
-        dim_ker_d0 = dim_c0 - rank_d0
-        dim_ker_d1 = dim_c1 - rank_d1
-        dim_h0 = dim_ker_d0
-        dim_h1 = dim_ker_d1 - rank_d0
+            if mult == 0:
+                by_grade_list.append((0, 0))
+                continue
 
-        if dim_h1 < 0:
-            raise ValueError("Invalid BRST complex block: im(d0) not contained in ker(d1)")
+            # Phase-2a explicit block assembly:
+            #   C^0_N -> C^1_N -> C^2_N
+            # by repeating the N=0 BRST block according to the grade multiplicity.
+            d0_n = _repeat_block_diagonal(d0_base, mult)
+            d1_n = _repeat_block_diagonal(d1_base, mult)
 
-        return int(dim_h0), int(dim_h1)
+            # Per-grade nilpotency check, not only N=0 base check.
+            comp_n = d1_n * d0_n
+            if any(comp_n[r, c] != 0 for r in range(comp_n.nrows()) for c in range(comp_n.ncols())):
+                raise ValueError(
+                    f"Phase-2a BRST nilpotency check failed: d1*d0 != 0 at grade N={grade_n}"
+                )
+
+            dim_c0_n = dim_c0_base * mult
+            dim_c1_n = dim_c1_base * mult
+            rank_d0_n = int(d0_n.rank())
+            rank_d1_n = int(d1_n.rank())
+
+            # Decomposition checks: block-diagonal repetition should scale linearly.
+            if rank_d0_n != mult * rank_d0_base:
+                raise ValueError(
+                    f"Phase-2 decomposition check failed at grade N={grade_n}: "
+                    "rank(d0_N) is inconsistent with repeated base block"
+                )
+            if rank_d1_n != mult * rank_d1_base:
+                raise ValueError(
+                    f"Phase-2 decomposition check failed at grade N={grade_n}: "
+                    "rank(d1_N) is inconsistent with repeated base block"
+                )
+
+            h0_n = dim_c0_n - rank_d0_n
+            h1_n = (dim_c1_n - rank_d1_n) - rank_d0_n
+            if h1_n < 0:
+                raise ValueError(f"Invalid BRST block at grade N={grade_n}: negative H^1")
+
+            expected_h0_n = mult * dim_h0_base
+            expected_h1_n = mult * dim_h1_base
+            if h0_n != expected_h0_n or h1_n != expected_h1_n:
+                raise ValueError(
+                    f"Phase-2 decomposition check failed at grade N={grade_n}: "
+                    "computed H^q_N does not match repeated base block"
+                )
+
+            by_grade_list.append((h0_n, h1_n))
+            total_h0 += h0_n
+            total_h1 += h1_n
+
+        return total_h0, total_h1, tuple(by_grade_list)
+
+    roots = _positive_roots_in_greater_than_zero()
+    d1_base = _build_d1_base(roots)
+    rank_d1_base = int(d1_base.rank())
 
     candidates: List[AdmissibleWeightCandidate] = []
     for labels in _dominant_finite_dynkin_labels(rank=rank, affine_level=affine_level):
         total = sum(labels)
         lambda0 = affine_level - total
         grade = sum(labels[i] * int(weighted_dynkin[i]) for i in range(rank))
-        h0_dim, h1_dim = _compute_n0_brs_cohomology(labels)
+        h0_dim, h1_dim, by_grade = _compute_truncated_brs_cohomology(
+            labels,
+            cohomology_max_grade,
+            roots,
+            d1_base,
+            rank_d1_base,
+        )
 
         # Keep non-vacuum reduced modules with nontrivial N=0 BRST cohomology.
-        survives = total > 0 and (h0_dim + h1_dim) > 0
+        n0_h0, n0_h1 = by_grade[0] if by_grade else (0, 0)
+        survives = total > 0 and (n0_h0 + n0_h1) > 0
 
         if survives and nondegeneracy_conditions:
             affine_labels = (Fraction(lambda0, 1),) + tuple(Fraction(v, 1) for v in labels)
@@ -398,8 +515,11 @@ def _compute_reduction_candidates(
                 lambda0_coeff=lambda0,
                 affine_level=affine_level,
                 reduction_grade=grade,
+                cohomology_computed_upto_grade=cohomology_max_grade,
                 cohomology_h0_dim=h0_dim,
                 cohomology_h1_dim=h1_dim,
+                cohomology_by_grade=by_grade,
+                cohomology_hq_by_grade=tuple((n, by_grade[n]) for n in range(len(by_grade))),
                 survives_reduction=survives,
             )
         )
@@ -428,9 +548,13 @@ def quantum_ds_reduction_workflow(
     rank: int,
     partition: Sequence[int],
     level_input: Union[PrincipalAdmissibleLevelInput, FractionalLevel],
+    cohomology_max_grade: int = 0,
     nondegeneracy_conditions: Optional[Sequence[LinearNonDegeneracyCondition]] = None,
 ) -> QuantumDSReductionResult:
     """Run MVP quantum DS reduction workflow for partition-labelled ``sl_n`` input."""
+    if not isinstance(cohomology_max_grade, int):
+        raise ValueError("cohomology_max_grade must be an integer")
+
     letter = str(cartan_type).upper()
     if letter != "A":
         raise NotImplementedError("MVP DS workflow currently supports type A only")
@@ -466,6 +590,7 @@ def quantum_ds_reduction_workflow(
         affine_level=affine_level,
         weighted_dynkin=reduction_data.weighted_dynkin,
         reduction_data=reduction_data,
+        cohomology_max_grade=cohomology_max_grade,
         nondegeneracy_conditions=nondegeneracy_conditions,
     )
 

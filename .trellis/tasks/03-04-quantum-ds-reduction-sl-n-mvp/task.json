@@ -1,0 +1,44 @@
+{
+  "id": "quantum-ds-reduction-sl-n-mvp",
+  "name": "quantum-ds-reduction-sl-n-mvp",
+  "title": "Implement quantum DS reduction workflow (sl_n partition MVP)",
+  "description": "",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": null,
+  "priority": "P2",
+  "creator": "lelouch",
+  "assignee": "lelouch",
+  "createdAt": "2026-03-04",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "current_phase": 3,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "implement"
+    },
+    {
+      "phase": 2,
+      "action": "check"
+    },
+    {
+      "phase": 3,
+      "action": "finish"
+    },
+    {
+      "phase": 4,
+      "action": "create-pr"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "relatedFiles": [
+    "pyw/walgebra/quantum_ds_reduction.py",
+    "pyw/tests/test_quantum_ds_reduction.py"
+  ],
+  "notes": "2026-03-04: Task initialized, PRD/context prepared, MVP implementation and check pass completed (pending user review and finish-work).\n2026-03-05: Continued Phase 2 (decomposition checks + H^q_N output). Added grade-wise H^q_N data exposure and decomposition-consistency checks in BRST block assembly. Added/updated tests in pyw/tests/test_quantum_ds_reduction.py including rank>1 consistency and non-integer cohomology_max_grade rejection. Verification: sage -python -m pytest pyw/tests/test_quantum_ds_reduction.py -q --no-cov -> 15 passed.\n2026-03-06: Finish-work checklist complete. ruff import-sort fixes applied; mypy clean; 15 tests pass. spec/ no update needed. Session 7 recorded. Awaiting human git commit + PR."
+}

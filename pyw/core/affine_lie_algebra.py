@@ -1011,6 +1011,55 @@ class AffineLieAlgebra:
         alpha = rs.simple_roots()
         return {i: alpha[i] for i in rs.index_set()}
 
+    def positive_roots(self):
+        """
+        Get the finite positive roots $\alpha \gt 0$.
+
+        For affine Cartan types, the full affine root system has infinitely
+        many positive roots. This method therefore returns the positive roots
+        of the underlying finite Lie algebra via ``finite_lie_algebra``.
+
+        Returns
+        -------
+        list
+            Positive roots of the finite root system.
+
+        Examples
+        --------
+        >>> ala = AffineLieAlgebra(['A', 2, 1])
+        >>> list(ala.positive_roots())  # finite A2 roots only
+        [alpha[1], alpha[1] + alpha[2], alpha[2]]
+        """
+        if self.is_affine:
+            return list(self.finite_lie_algebra.positive_roots())
+        return list(self._root_system.root_lattice().positive_roots())
+
+    def negative_roots(self):
+        """
+        Get the finite negative roots $\alpha \lt 0$.
+
+        For affine Cartan types, this returns negative roots of the
+        underlying finite Lie algebra via ``finite_lie_algebra``.
+
+        Returns
+        -------
+        list
+            Negative roots of the finite root system.
+
+        Examples
+        --------
+        >>> ala = AffineLieAlgebra(['A', 2, 1])
+        >>> list(ala.negative_roots())
+        [-alpha[1], -alpha[1] - alpha[2], -alpha[2]]
+        """
+        if self.is_affine:
+            return list(self.finite_lie_algebra.negative_roots())
+
+        rl = self._root_system.root_lattice()
+        if hasattr(rl, "negative_roots"):
+            return list(rl.negative_roots())
+        return [-root for root in rl.positive_roots()]
+
     def simple_coroots(self):
         """
         Get the simple coroots α_i^∨ in coroot space (supports rational coefficients).

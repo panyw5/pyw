@@ -355,6 +355,32 @@ class TestFiniteLieAlgebra:
         result = g.scalar_product(Lambda[1], Lambda[1])
         assert result == QQ((2, 3))
 
+    def test_positive_roots_delegate_to_finite(self):
+        """Affine positive_roots() should return finite positive roots."""
+        ala = AffineLieAlgebra(["A", 2, 1])
+        g = ala.finite_lie_algebra
+
+        roots_affine = ala.positive_roots()
+        roots_finite = g.positive_roots()
+
+        assert isinstance(roots_affine, list)
+        assert roots_affine == roots_finite
+        assert len(roots_affine) == 3
+
+    def test_negative_roots_delegate_to_finite(self):
+        """Affine negative_roots() should return finite negative roots."""
+        ala = AffineLieAlgebra(["A", 2, 1])
+        g = ala.finite_lie_algebra
+
+        roots_affine = ala.negative_roots()
+        roots_finite = g.negative_roots()
+        pos = ala.positive_roots()
+
+        assert isinstance(roots_affine, list)
+        assert roots_affine == roots_finite
+        assert roots_affine == [-r for r in pos]
+        assert len(roots_affine) == 3
+
 
 class TestConvenienceFunctions:
     """Test module-level convenience functions."""
