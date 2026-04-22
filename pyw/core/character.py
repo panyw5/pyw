@@ -12,6 +12,12 @@ if TYPE_CHECKING:
     from .affine_weight import AffineWeight
 
 
+def _element_word_list(element: Any) -> list[int]:
+    if hasattr(element, "reduced_word_list"):
+        return list(element.reduced_word_list())
+    return [int(i) for i in element.reduced_word()]
+
+
 @dataclass(frozen=True)
 class KLNumeratorTerm:
     representative: Any
@@ -38,7 +44,7 @@ class KazhdanLusztigData:
 
     def apply(self, element: Any, weight: "AffineWeight") -> "AffineWeight":
         semidirect = self.algebra.affine_weyl_group()
-        word = tuple(int(i) for i in element.reduced_word())
+        word = tuple(_element_word_list(element))
         return semidirect.from_word(word).action(weight)
 
     def quotient_weight(self, representative: Any) -> "AffineWeight":
@@ -55,7 +61,7 @@ class KazhdanLusztigData:
         for w in self.quotient_representatives:
             if bruhat.le(lower, w):
                 result.append(w)
-        return sorted(result, key=lambda w: (int(w.length()), tuple(int(i) for i in w.reduced_word())))
+        return sorted(result, key=lambda w: (int(w.length()), tuple(_element_word_list(w))))
 
 
 @dataclass
@@ -390,7 +396,7 @@ class KazhdanLusztigCharacter:
         algebra: "AffineLieAlgebra", element: Any, weight: "AffineWeight"
     ) -> "AffineWeight":
         semidirect = algebra.affine_weyl_group()
-        word = tuple(int(i) for i in element.reduced_word())
+        word = tuple(_element_word_list(element))
         return semidirect.from_word(word).action(weight)
 
     @classmethod
@@ -409,7 +415,7 @@ class KazhdanLusztigCharacter:
             current = by_weight.get(key)
             if current is None or int(w.length()) < int(current.length()):
                 by_weight[key] = w
-        return sorted(by_weight.values(), key=lambda w: (int(w.length()), tuple(int(i) for i in w.reduced_word())))
+        return sorted(by_weight.values(), key=lambda w: (int(w.length()), tuple(_element_word_list(w))))
 
     def build_context(
         self,

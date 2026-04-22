@@ -2,16 +2,17 @@
 Kazhdan-Lusztig Polynomials for Coxeter Groups
 
 This module provides computation of Kazhdan-Lusztig polynomials and their
-inverses, essential for character formulas of admissible representations.
+inverse/parabolic variants, essential for character formulas of admissible
+representations.
 
 Key features:
     - Standard KL polynomials P_{x,y}(q)
-    - Inverse KL polynomials Q̃_{x,y}(q)
-    - Parabolic (coset) KL polynomials
+    - Inverse KL polynomials Q_{x,y}(q) on Weyl-group elements
+    - Quotient/parabolic inverse KL polynomials Q̃_{[x],[y]}(q) on cosets
     - Integration with SageMath and coxeter3
     - Caching for expensive computations
 
-The inverse KL polynomial Q̃_{x,y}(1) appears in the Kazhdan-Lusztig
+The quotient inverse KL polynomial Q̃_{[x],[y]}(1) appears in the Kazhdan-Lusztig
 character formula for admissible modules:
 
     ch(L_λ) = Σ Q̃_{[w],[w']}(1) · ch(M(w'·Λ))
@@ -26,23 +27,27 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import shutil
+from glob import glob
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Tuple, Union
 
 from sage.all import QQ, SR, WeylGroup, matrix, var
 
 if TYPE_CHECKING:
     from .bruhat import BruhatOrder, CosetRepresentative, ParabolicSubgroup
+    from .affine_lie_algebra import AffineLieAlgebra
 
 
 class KazhdanLusztigPolynomials:
     """
     Compute Kazhdan-Lusztig polynomials for Coxeter/Weyl groups.
 
-    This class provides access to both standard KL polynomials P_{x,y}(q)
-    and inverse KL polynomials Q̃_{x,y}(q), with support for parabolic
-    (coset) versions needed for admissible character computations.
+    This class provides access to standard KL polynomials P_{x,y}(q),
+    ordinary inverse KL polynomials Q_{x,y}(q) on Weyl-group elements,
+    and quotient/parabolic inverse KL polynomials Q̃_{[x],[y]}(q) on cosets.
 
     The implementation uses multiple backends:
     1. SageMath's native KazhdanLusztigPolynomial (default)
@@ -67,10 +72,10 @@ class KazhdanLusztigPolynomials:
 
     Notes
     -----
-    The inverse KL polynomial Q̃_{x,y}(q) is related to P_{x,y}(q) by:
+    The ordinary inverse KL polynomial Q_{x,y}(q) is related to P_{x,y}(q) by:
         Σ_z P_{x,z}(q) Q̃_{z,y}(q) = δ_{x,y}
 
-    For the character formula, we need Q̃_{x,y}(1).
+    For the character formula on quotient data, we need Q̃_{[x],[y]}(1).
     """
 
     def __init__(
@@ -101,6 +106,8 @@ class KazhdanLusztigPolynomials:
         self._P_cache: Dict[Tuple[Any, Any], Any] = {}
         self._Q_cache: Dict[Tuple[Any, Any], Any] = {}
         self._invpol_cache: Dict[Tuple[Any, Any], Any] = {}
+        self._Q_at_one_cache: Dict[Tuple[Any, Any], Any] = {}
+        self._legacy_Q_cache: Dict[Tuple[Tuple[int, ...], Tuple[int, ...]], Any] = {}
 
         # Initialize SageMath KL calculator
         self._sage_kl = None
@@ -127,20 +134,27 @@ class KazhdanLusztigPolynomials:
         try:
             from coxeter3_sage import Coxeter3
 
-            # Convert Cartan type to coxeter3 format
-            ct = self._cartan_type
-            if hasattr(ct, "letter"):
-                letter = ct.letter()
-                rank = ct.rank()
-                if ct.is_affine():
-                    # Affine type: e.g., "A~2" for A_2^(1)
-                    coxeter3_type = f"{letter}~{rank - 1}"
-                else:
-                    coxeter3_type = f"{letter}{rank}"
-                self._coxeter3 = Coxeter3(coxeter3_type)
+            command = self._discover_coxeter_command()
+            self._coxeter3 = Coxeter3(self._W, self._q, command=command)
         except (ImportError, Exception):
             # coxeter3 not available or type not supported
             pass
+
+    def _discover_coxeter_command(self) -> str:
+        env_command = os.environ.get("PYW_COXETER_COMMAND")
+        if env_command:
+            return env_command
+
+        direct = shutil.which("coxeter")
+        if direct:
+            return direct
+
+        candidates = sorted(glob("/private/var/tmp/sage-*/local/bin/coxeter"), reverse=True)
+        for candidate in candidates:
+            if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+                return candidate
+
+        return "coxeter"
 
     @property
     def weyl_group(self) -> Any:
@@ -204,73 +218,91 @@ class KazhdanLusztigPolynomials:
         )
 
     # =========================================================================
-    # Inverse KL Polynomials Q̃_{x,y}(q)
+    # Inverse KL Polynomials Q_{x,y}(q)
     # =========================================================================
 
-    def Q_tilde(self, x: Any, y: Any, at_one: bool = True) -> Any:
+    def Q(self, x: Any, y: Any, at_one: bool = False) -> Any:
         """
-        Compute the inverse Kazhdan-Lusztig polynomial Q̃_{x,y}(q).
+        Compute the ordinary inverse Kazhdan-Lusztig polynomial Q_{x,y}(q).
 
-        Q̃_{x,y}(q) satisfies:
+        Q_{x,y}(q) satisfies:
             Σ_z P_{x,z}(q) Q̃_{z,y}(q) = δ_{x,y}
 
-        This is the polynomial needed for the KL character formula.
+        This is the Weyl-group-element-level inverse KL object. It is distinct
+        from the quotient/parabolic quantity :meth:`Q_tilde`, whose arguments
+        are coset representatives.
 
         Parameters
         ----------
         x, y : Weyl group elements
             Elements with x ≤ y in Bruhat order
         at_one : bool
-            If True (default), return Q̃_{x,y}(1)
+            If True, return Q_{x,y}(1)
 
         Returns
         -------
         polynomial or int
-            Q̃_{x,y}(q) or Q̃_{x,y}(1)
+            Q_{x,y}(q) or Q_{x,y}(1)
 
         Examples
         --------
         >>> W = WeylGroup(['A', 2])
         >>> kl = KazhdanLusztigPolynomials(W)
-        >>> kl.Q_tilde(W.one(), W.long_element(), at_one=True)
+        >>> kl.Q(W.one(), W.long_element(), at_one=True)
         1
         """
         x = self._ensure_element(x)
         y = self._ensure_element(y)
 
-        # Check cache
         cache_key = (self._element_key(x), self._element_key(y))
-        if cache_key in self._Q_cache:
-            q_val = self._Q_cache[cache_key]
-            if at_one and hasattr(q_val, "subs"):
-                return q_val.subs({self._q: 1})
-            return q_val
+        if at_one and cache_key in self._Q_at_one_cache:
+            return self._Q_at_one_cache[cache_key]
+        if not at_one and cache_key in self._Q_cache:
+            return self._Q_cache[cache_key]
 
-        # Try coxeter3's invpol (fastest)
         if self._coxeter3 is not None and hasattr(self._coxeter3, "invpol"):
             try:
                 result = self._coxeter3.invpol(x, y)
                 self._Q_cache[cache_key] = result
-                if at_one and hasattr(result, "subs"):
-                    return result.subs({self._q: 1})
+                if at_one:
+                    value_at_one = result.subs({self._q: 1}) if hasattr(result, "subs") else result
+                    self._Q_at_one_cache[cache_key] = value_at_one
+                    return value_at_one
                 return result
             except Exception:
                 pass
 
-        # Fallback: compute by inverting the P-matrix on the interval
-        result = self._compute_Q_tilde_by_inversion(x, y)
-        self._Q_cache[cache_key] = result
+        if not at_one:
+            result = self._compute_inverse_kl_by_matrix_inversion(x, y, at_one=False)
+            self._Q_cache[cache_key] = result
+            return result
 
-        if at_one and hasattr(result, "subs"):
-            return result.subs({self._q: 1})
+        result = self._compute_inverse_kl_by_matrix_inversion(x, y, at_one=True)
+        self._Q_at_one_cache[cache_key] = result
         return result
+
+    def Q_tilde(
+        self,
+        coset_x: "CosetRepresentative",
+        coset_y: "CosetRepresentative",
+        at_one: bool = True,
+    ) -> Any:
+        """
+        Compute the quotient/parabolic inverse KL polynomial Q̃_{[x],[y]}(q).
+
+        This is the coset-level object attached to the quotient W / W_I. It is
+        implemented by :meth:`parabolic_Q_tilde`, which currently supports
+        right cosets in finite Weyl groups.
+        """
+        return self.parabolic_Q_tilde(coset_x, coset_y, at_one=at_one)
 
     def invpol(self, x: Any, y: Any) -> Any:
         """
         Compute inverse KL polynomial using coxeter3's invpol.
 
         This is a direct interface to coxeter3's invpol command,
-        which computes Q̃_{x,y}(q) efficiently.
+        which computes the ordinary inverse KL polynomial Q_{x,y}(q)
+        efficiently.
 
         Parameters
         ----------
@@ -280,7 +312,7 @@ class KazhdanLusztigPolynomials:
         Returns
         -------
         polynomial
-            Q̃_{x,y}(q) as a symbolic expression
+            Q_{x,y}(q) as a symbolic expression
 
         Raises
         ------
@@ -306,20 +338,11 @@ class KazhdanLusztigPolynomials:
         self._invpol_cache[cache_key] = result
         return result
 
-    def _compute_Q_tilde_by_inversion(self, x: Any, y: Any) -> Any:
-        """
-        Compute Q̃_{x,y}(1) by inverting the P-matrix on [x, y].
-
-        The inverse KL polynomials satisfy:
-            Σ_z P_{x,z} Q̃_{z,y} = δ_{x,y}
-
-        So Q̃ = P^{-1} on the Bruhat interval.
-        """
+    def _compute_inverse_kl_by_matrix_inversion(self, x: Any, y: Any, at_one: bool) -> Any:
         from .bruhat import BruhatOrder
 
         bruhat = BruhatOrder(self._W)
 
-        # Get the Bruhat interval [x, y]
         if not bruhat.le(x, y):
             return 0
 
@@ -327,24 +350,20 @@ class KazhdanLusztigPolynomials:
         n = len(interval)
 
         if n == 1:
-            # x = y
             return 1
 
-        # Build the P-matrix: P[i,j] = P_{interval[i], interval[j]}(1)
-        # Only upper triangular (i ≤ j in Bruhat order)
-        P_mat = matrix(QQ, n, n)
+        ring = QQ if at_one else self._q.parent()
+        P_mat = matrix(ring, n, n)
         for i, w_i in enumerate(interval):
             for j, w_j in enumerate(interval):
                 if bruhat.le(w_i, w_j):
-                    P_mat[i, j] = self.P(w_i, w_j, at_one=True)
+                    P_mat[i, j] = self.P(w_i, w_j, at_one=at_one)
 
-        # Invert to get Q̃-matrix
         try:
             Q_mat = P_mat.inverse()
         except Exception as e:
             raise RuntimeError(f"Failed to invert P-matrix: {e}")
 
-        # Find indices of x and y in the interval
         x_idx = interval.index(x)
         y_idx = interval.index(y)
 
@@ -363,7 +382,7 @@ class KazhdanLusztigPolynomials:
         """
         Compute parabolic inverse KL polynomial Q̃_{[x],[y]}(q).
 
-        For cosets [x], [y] in W / W_I (or W_I \\ W), the parabolic
+        For right cosets [x], [y] in W / W_I, the parabolic
         inverse KL polynomial is computed using the formula from
         Cordova-Gaiotto-Shao (Eq. C.28):
 
@@ -393,6 +412,15 @@ class KazhdanLusztigPolynomials:
         bruhat = BruhatOrder(self._W)
         parabolic = coset_x._parabolic
 
+        if parabolic != coset_y._parabolic:
+            raise ValueError("Coset inputs must use the same parabolic subgroup")
+        if coset_x._left != coset_y._left:
+            raise ValueError("Coset inputs must use the same left/right convention")
+        if coset_x._left:
+            raise NotImplementedError("parabolic_Q_tilde currently supports right cosets only")
+        if not self._W.is_finite():
+            raise ValueError("parabolic_Q_tilde currently supports finite groups only")
+
         # Get minimal representatives
         x_min = coset_x.representative
         y_min = coset_y.representative
@@ -402,19 +430,246 @@ class KazhdanLusztigPolynomials:
             return 0
 
         # Get maximal representative of [x]
-        x_max = self._maximal_coset_representative(x_min, parabolic)
+        x_max = self._maximal_representative_in_coset(x_min, parabolic)
 
         # Sum over elements in coset [y]
         result = 0
-        for z in self._coset_elements(y_min, parabolic):
+        for z in self._enumerate_coset_elements(y_min, parabolic):
             if bruhat.le(x_max, z):
-                q_val = self.Q_tilde(x_max, z, at_one=at_one)
+                q_val = self.Q(x_max, z, at_one=at_one)
                 sign = (-1) ** (bruhat.length(x_max) + bruhat.length(z))
                 result += sign * q_val
 
         return result
 
-    def _maximal_coset_representative(self, w_min: Any, parabolic: "ParabolicSubgroup") -> Any:
+    def affine_bounded_elements(
+        self,
+        algebra: "AffineLieAlgebra",
+        *,
+        translation_bounds: Dict[int, Tuple[int, int]] | None = None,
+        translations: Iterable[Any] | None = None,
+        factor_order: str = "st",
+    ) -> List[Any]:
+        r"""Enumerate a bounded affine subset and coerce it into ``self._W``.
+
+        The old reference implementation built finite pieces and translations by
+        hand. In ``pyw`` we reuse ``AffineWeylGroupSemidirect`` to enumerate a
+        bounded subset of $\widehat W = W \ltimes Q^\vee$, then convert each
+        element back to the Sage affine Weyl group via its reduced word.
+        """
+        semidirect = algebra.affine_weyl_group()
+        bounded = semidirect.elements_as_semi_direct_product(
+            translation_bounds=translation_bounds,
+            translations=translations,
+            factor_order=factor_order,
+        )
+
+        result: List[Any] = []
+        seen: set[Tuple[int, ...]] = set()
+        for element in bounded:
+            word = tuple(int(i) for i in element.word())
+            if word in seen:
+                continue
+            seen.add(word)
+            result.append(self._W.from_reduced_word(word))
+
+        return sorted(result, key=lambda w: (int(w.length()), tuple(w.reduced_word())))
+
+    def affine_bounded_interval(
+        self,
+        x: Any,
+        y: Any,
+        *,
+        candidates: Iterable[Any],
+    ) -> List[Any]:
+        """Bruhat interval restricted to an explicit bounded affine candidate set."""
+        from .bruhat import BruhatOrder
+
+        bruhat = BruhatOrder(self._W)
+        coerced = [self._ensure_element(w) for w in candidates]
+        return bruhat.interval_from_candidates(self._ensure_element(x), self._ensure_element(y), coerced)
+
+    def affine_bounded_Q(
+        self,
+        x: Any,
+        y: Any,
+        *,
+        candidates: Iterable[Any],
+        at_one: bool = True,
+    ) -> Any:
+        """Compute ordinary inverse KL polynomial on a bounded affine interval.
+
+        For affine groups, direct interval enumeration is infinite globally but
+        locally finite. This helper lets callers provide an explicit bounded
+        candidate set coming from translation bounds, then performs the same
+        matrix-inversion construction used by the finite fallback.
+        """
+        from .bruhat import BruhatOrder
+
+        bruhat = BruhatOrder(self._W)
+        x = self._ensure_element(x)
+        y = self._ensure_element(y)
+
+        if not bruhat.le(x, y):
+            return 0
+
+        interval = self.affine_bounded_interval(x, y, candidates=candidates)
+        if x not in interval or y not in interval:
+            raise ValueError("bounded candidate set must contain both interval endpoints")
+
+        n = len(interval)
+        if n == 1:
+            return 1
+
+        ring = QQ if at_one else self._q.parent()
+        p_matrix = matrix(ring, n, n)
+        for i, w_i in enumerate(interval):
+            for j, w_j in enumerate(interval):
+                if bruhat.le(w_i, w_j):
+                    p_matrix[i, j] = self.P(w_i, w_j, at_one=at_one)
+
+        q_matrix = p_matrix.inverse()
+        return q_matrix[interval.index(x), interval.index(y)]
+
+    def affine_bounded_Q_tilde(
+        self,
+        x: Any,
+        y: Any,
+        *,
+        candidates: Iterable[Any],
+        at_one: bool = True,
+    ) -> Any:
+        """Legacy alias for :meth:`affine_bounded_Q`.
+
+        Historically this helper was misnamed as if it computed a quotient
+        object. It actually computes the ordinary inverse KL polynomial Q on a
+        bounded affine Bruhat interval.
+        """
+        return self.affine_bounded_Q(x, y, candidates=candidates, at_one=at_one)
+
+    def affine_stabilizer(
+        self,
+        Lambda: Any,
+        *,
+        rho_hat: Any,
+        candidates: Iterable[Any],
+        algebra: Optional["AffineLieAlgebra"] = None,
+    ) -> List[Any]:
+        """Return the bounded affine stabilizer of ``Lambda`` under the dot action.
+
+        When ``algebra`` is provided, candidate elements are interpreted through
+        the semidirect-product affine Weyl wrapper so their action is evaluated
+        on affine weights rather than Sage's default root-domain action.
+        """
+        from .affine_weight import AffineWeight
+
+        result: List[Any] = []
+        semidirect = algebra.affine_weyl_group() if algebra is not None else None
+        target = Lambda + rho_hat
+        target_affine = None
+        rho_hat_affine = None
+        Lambda_affine = None
+
+        if algebra is not None:
+            target_affine = AffineWeight.from_sagemath(algebra, target)
+            rho_hat_affine = AffineWeight.from_sagemath(algebra, rho_hat)
+            Lambda_affine = AffineWeight.from_sagemath(algebra, Lambda)
+
+        for w in candidates:
+            if semidirect is not None:
+                if hasattr(w, "reduced_word"):
+                    affine_word = w.word() if hasattr(w, "word") else tuple(int(i) for i in w.reduced_word())
+                    element = semidirect.from_word(affine_word)
+                    stabilized = element.action(target_affine)
+                else:
+                    element = w
+                    stabilized = element.action(target_affine)
+
+                if stabilized - rho_hat_affine == Lambda_affine:
+                    if hasattr(w, "reduced_word"):
+                        affine_word = w.word() if hasattr(w, "word") else tuple(int(i) for i in w.reduced_word())
+                        result.append(self._W.from_reduced_word(affine_word))
+                    else:
+                        affine_word = element.word() if hasattr(element, "word") else tuple(int(i) for i in element.reduced_word())
+                        result.append(self._W.from_reduced_word(affine_word))
+                continue
+
+            element = self._ensure_element(w)
+            if element.action(target) - rho_hat == Lambda:
+                result.append(element)
+
+        identity = self._W.one()
+        if all(self._element_key(w) != self._element_key(identity) for w in result):
+            result.append(identity)
+
+        return sorted(result, key=lambda w: (int(w.length()), tuple(w.reduced_word())))
+
+    def affine_bounded_parabolic_Q_tilde(
+        self,
+        x_min: Any,
+        y_min: Any,
+        *,
+        candidates: Iterable[Any],
+        stabilizer_candidates: Iterable[Any],
+        at_one: bool = True,
+    ) -> Any:
+        """Compute bounded affine coset-level Q̃ using an explicit stabilizer set."""
+        from .bruhat import BruhatOrder
+
+        bruhat = BruhatOrder(self._W)
+        x_min = self._ensure_element(x_min)
+        y_min = self._ensure_element(y_min)
+        bounded_candidates = [self._ensure_element(w) for w in candidates]
+        stabilizer = [self._ensure_element(w) for w in stabilizer_candidates]
+
+        if not bruhat.le(x_min, y_min):
+            return 0
+
+        x_max = self._bounded_maximal_representative(x_min, stabilizer=stabilizer)
+        result = 0
+        for z in self._bounded_right_coset_elements(y_min, stabilizer=stabilizer, candidates=bounded_candidates):
+            if bruhat.le(x_max, z):
+                q_val = self.affine_bounded_Q(x_max, z, candidates=bounded_candidates, at_one=at_one)
+                sign = (-1) ** (bruhat.length(x_max) + bruhat.length(z))
+                result += sign * q_val
+
+        return result
+
+    def _bounded_maximal_representative(self, w_min: Any, *, stabilizer: Iterable[Any]) -> Any:
+        """Find the maximal representative inside a bounded right coset."""
+        current = self._ensure_element(w_min)
+        current_length = int(current.length())
+        for s in stabilizer:
+            candidate = current * self._ensure_element(s)
+            candidate_length = int(candidate.length())
+            if candidate_length > current_length:
+                current = candidate
+                current_length = candidate_length
+        return current
+
+    def _bounded_right_coset_elements(
+        self,
+        w_min: Any,
+        *,
+        stabilizer: Iterable[Any],
+        candidates: Iterable[Any],
+    ) -> List[Any]:
+        """Enumerate right-coset elements present in a bounded candidate set."""
+        candidate_set = {
+            self._element_key(self._ensure_element(w)): self._ensure_element(w) for w in candidates
+        }
+        result: Dict[Tuple[int, ...], Any] = {}
+        base = self._ensure_element(w_min)
+        for s in stabilizer:
+            candidate = base * self._ensure_element(s)
+            key = self._element_key(candidate)
+            if key in candidate_set:
+                result[key] = candidate_set[key]
+        if self._element_key(base) not in result and self._element_key(base) in candidate_set:
+            result[self._element_key(base)] = candidate_set[self._element_key(base)]
+        return sorted(result.values(), key=lambda w: (int(w.length()), tuple(w.reduced_word())))
+
+    def _maximal_representative_in_coset(self, w_min: Any, parabolic: "ParabolicSubgroup") -> Any:
         """Find the maximal length representative of a coset."""
         from .bruhat import BruhatOrder
 
@@ -435,7 +690,7 @@ class KazhdanLusztigPolynomials:
                     break
         return current
 
-    def _coset_elements(self, w_min: Any, parabolic: "ParabolicSubgroup") -> List[Any]:
+    def _enumerate_coset_elements(self, w_min: Any, parabolic: "ParabolicSubgroup") -> List[Any]:
         """Get all elements in the coset of w_min."""
         from .bruhat import BruhatOrder
 
@@ -486,9 +741,13 @@ class KazhdanLusztigPolynomials:
 
         # Convert cache to serializable format
         cache_data = {
+            "cache_version": self.CACHE_VERSION,
             "cartan_type": str(self._cartan_type),
-            "Q_cache": {f"{k[0]}|{k[1]}": str(v) for k, v in self._Q_cache.items()},
-            "P_cache": {f"{k[0]}|{k[1]}": str(v) for k, v in self._P_cache.items()},
+            "value_kind": "Q_at_one",
+            "Q_at_one_cache": {
+                self._cache_key_to_string(k): self._json_scalar(v)
+                for k, v in self._Q_at_one_cache.items()
+            },
         }
 
         with open(filepath, "w") as f:
@@ -523,19 +782,17 @@ class KazhdanLusztigPolynomials:
             with open(filepath) as f:
                 cache_data = json.load(f)
 
-            # Verify Cartan type matches
+            if cache_data.get("cache_version") != self.CACHE_VERSION:
+                return False
+
             if cache_data.get("cartan_type") != str(self._cartan_type):
                 return False
 
-            # Load Q cache
-            for key_str, val_str in cache_data.get("Q_cache", {}).items():
-                parts = key_str.split("|")
-                if len(parts) == 2:
-                    key = (
-                        tuple(map(int, parts[0].split(",") if parts[0] else [])),
-                        tuple(map(int, parts[1].split(",") if parts[1] else [])),
-                    )
-                    self._Q_cache[key] = SR(val_str)
+            if cache_data.get("value_kind") not in {"Q_at_one", "Q_tilde_at_one"}:
+                return False
+
+            for key_str, value in cache_data.get("Q_at_one_cache", {}).items():
+                self._Q_at_one_cache[self._parse_cache_key(key_str)] = value
 
             return True
         except Exception:
@@ -559,58 +816,24 @@ class KazhdanLusztigPolynomials:
             return tuple(w.reduced_word())
         return (0,)  # Identity
 
+    def _cache_key_to_string(self, cache_key: Tuple[Tuple[int, ...], Tuple[int, ...]]) -> str:
+        return json.dumps([list(cache_key[0]), list(cache_key[1])])
 
-@dataclass
-class KLPolynomialCache:
-    """
-    Persistent cache for KL polynomial computations.
+    def _parse_cache_key(self, key_str: str) -> Tuple[Tuple[int, ...], Tuple[int, ...]]:
+        left, right = json.loads(key_str)
+        return (tuple(left), tuple(right))
 
-    This class manages disk-based caching of expensive KL polynomial
-    computations, enabling reuse across sessions.
-
-    Parameters
-    ----------
-    cache_dir : Path
-        Directory for cache files
-    cartan_type : str
-        String representation of Cartan type
-    """
-
-    cache_dir: Path
-    cartan_type: str
-    _data: Dict[str, Any] = field(default_factory=dict)
-
-    def __post_init__(self):
-        """Load existing cache if available."""
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
-        self._load()
-
-    @property
-    def filepath(self) -> Path:
-        """Path to cache file."""
-        safe_name = self.cartan_type.replace(" ", "_").replace("[", "").replace("]", "")
-        return self.cache_dir / f"kl_{safe_name}.dat"
-
-    def get(self, x_key: Tuple, y_key: Tuple) -> Optional[Any]:
-        """Get cached value."""
-        key = f"{x_key}|{y_key}"
-        return self._data.get(key)
-
-    def set(self, x_key: Tuple, y_key: Tuple, value: Any) -> None:
-        """Set cached value."""
-        key = f"{x_key}|{y_key}"
-        self._data[key] = value
-
-    def _load(self) -> None:
-        """Load cache from disk."""
-        if self.filepath.exists():
+    def _json_scalar(self, value: Any) -> Any:
+        if isinstance(value, (int, float, str, bool)) or value is None:
+            return value
+        if hasattr(value, "is_integer") and value.is_integer():
+            return int(value)
+        try:
+            return int(value)
+        except (TypeError, ValueError):
             try:
-                with open(self.filepath) as f:
-                    self._data = json.load(f)
-            except Exception:
-                self._data = {}
+                return float(value)
+            except (TypeError, ValueError):
+                return str(value)
 
-    def save(self) -> None:
-        """Save cache to disk."""
-        with open(self.filepath, "w") as f:
-            json.dump(self._data, f)
+    CACHE_VERSION = 1

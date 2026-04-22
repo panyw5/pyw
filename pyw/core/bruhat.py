@@ -23,7 +23,7 @@ References:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Set, Tuple, Union
+from typing import TYPE_CHECKING, Any, Iterator, List, Optional, Set, Union
 
 from sage.all import CoxeterGroup, WeylGroup, QQ
 
@@ -247,7 +247,8 @@ class BruhatOrder:
 
         # Use SageMath's bruhat_interval if available
         if hasattr(self._W, "bruhat_interval"):
-            return list(self._W.bruhat_interval(w1, w2))
+            interval = list(self._W.bruhat_interval(w1, w2))
+            return sorted(interval, key=lambda w: (self.length(w), tuple(self.reduced_word(w))))
 
         # Fallback: enumerate by BFS from w1
         return self._bruhat_interval_bfs(w1, w2)
@@ -267,6 +268,16 @@ class BruhatOrder:
             Number of elements in [w1, w2]
         """
         return len(self.interval(w1, w2))
+
+    def interval_from_candidates(self, w1: Any, w2: Any, candidates: List[Any]) -> List[Any]:
+        w1 = self._ensure_element(w1)
+        w2 = self._ensure_element(w2)
+
+        if not self.le(w1, w2):
+            raise ValueError(f"Empty interval: {w1} is not ≤ {w2}")
+
+        filtered = [w for w in candidates if self.le(w1, w) and self.le(w, w2)]
+        return sorted(filtered, key=lambda w: (self.length(w), tuple(self.reduced_word(w))))
 
     # =========================================================================
     # Length Function
@@ -292,6 +303,8 @@ class BruhatOrder:
         w = self._ensure_element(w)
         if hasattr(w, "length"):
             return int(w.length())
+        if hasattr(w, "reduced_word_list"):
+            return len(w.reduced_word_list())
         return len(w.reduced_word())
 
     def reduced_word(self, w: Any) -> List[int]:
@@ -309,6 +322,8 @@ class BruhatOrder:
             A reduced word (list of simple reflection indices)
         """
         w = self._ensure_element(w)
+        if hasattr(w, "reduced_word_list"):
+            return list(w.reduced_word_list())
         return list(w.reduced_word())
 
     # =========================================================================
@@ -630,7 +645,7 @@ class CosetRepresentative:
     """
 
     def __init__(self, representative: Any, parabolic: ParabolicSubgroup, left: bool = True):
-        self._rep = representative
+        self._rep = parabolic.minimal_coset_representative(representative, left=left)
         self._parabolic = parabolic
         self._left = left
         self._bruhat = parabolic.bruhat
@@ -662,15 +677,27 @@ class CosetRepresentative:
         bool
             True if self ≤ other in Bruhat order on cosets
         """
+        if self._parabolic != other._parabolic or self._left != other._left:
+            raise ValueError("Cannot compare cosets from different parabolic data")
         return self._bruhat.le(self._rep, other._rep)
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, CosetRepresentative):
             return False
-        return self._rep == other._rep
+        return (
+            self._rep == other._rep
+            and self._parabolic == other._parabolic
+            and self._left == other._left
+        )
 
     def __hash__(self) -> int:
-        return hash(tuple(self._bruhat.reduced_word(self._rep)))
+        return hash(
+            (
+                tuple(sorted(self._parabolic.generators)),
+                self._left,
+                tuple(self._bruhat.reduced_word(self._rep)),
+            )
+        )
 
     def __repr__(self) -> str:
         word = self._bruhat.reduced_word(self._rep)

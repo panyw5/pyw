@@ -36,7 +36,7 @@ def test_affine_kl_context_stabilizer_contains_identity():
 
     context = kl_char.build_context(lambda_hat, order=1)
 
-    assert any(len(w.reduced_word()) == 0 for w in context.stabilizer_candidates)
+    assert any(tuple(int(i) for i in w.reduced_word()) == () for w in context.stabilizer_candidates)
 
 
 @pytest.mark.sage
