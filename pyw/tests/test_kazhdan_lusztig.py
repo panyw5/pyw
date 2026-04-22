@@ -8,6 +8,8 @@ These tests verify:
 - Kac-Wakimoto character formula
 """
 
+import json
+
 import pytest
 from sage.all import QQ, WeylGroup
 
@@ -110,6 +112,45 @@ class TestParabolicSubgroup:
         rep = W_I.minimal_coset_representative(s1 * s2)
         assert bruhat.length(rep) <= bruhat.length(s1 * s2)
 
+    def test_left_right_coset_representatives_are_distinct(self):
+        from pyw.core.bruhat import BruhatOrder
+
+        W = WeylGroup(["A", 2])
+        bruhat = BruhatOrder(W)
+        W_I = bruhat.parabolic_subgroup({1})
+
+        w = W.simple_reflection(1) * W.simple_reflection(2)
+        left_rep = W_I.minimal_coset_representative(w, left=True)
+        right_rep = W_I.minimal_coset_representative(w, left=False)
+
+        assert left_rep == W.simple_reflection(2)
+        assert right_rep == w
+
+    def test_coset_representative_normalizes_input(self):
+        from pyw.core.bruhat import BruhatOrder, CosetRepresentative
+
+        W = WeylGroup(["A", 2])
+        bruhat = BruhatOrder(W)
+        W_I = bruhat.parabolic_subgroup({1})
+
+        w = W.simple_reflection(1) * W.simple_reflection(2)
+        coset = CosetRepresentative(w, W_I, left=False)
+
+        assert coset.representative == w
+
+    def test_coset_bruhat_compare_requires_same_side(self):
+        from pyw.core.bruhat import BruhatOrder, CosetRepresentative
+
+        W = WeylGroup(["A", 2])
+        bruhat = BruhatOrder(W)
+        W_I = bruhat.parabolic_subgroup({1})
+
+        left_coset = CosetRepresentative(W.simple_reflection(2), W_I, left=True)
+        right_coset = CosetRepresentative(W.simple_reflection(2), W_I, left=False)
+
+        with pytest.raises(ValueError, match="different parabolic data"):
+            left_coset.bruhat_le(right_coset)
+
 
 class TestKazhdanLusztigPolynomials:
     """Tests for KL polynomial computation."""
@@ -139,15 +180,354 @@ class TestKazhdanLusztigPolynomials:
 
         assert kl.P(e, s1, at_one=True) == 1
 
-    def test_Q_tilde_identity(self):
-        """Q̃_{w,w} = 1 for any w."""
+    def test_Q_identity(self):
+        """Q_{w,w} = 1 for any w."""
         from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
 
         W = WeylGroup(["A", 2])
         kl = KazhdanLusztigPolynomials(W)
 
         e = W.one()
-        assert kl.Q_tilde(e, e, at_one=True) == 1
+        assert kl.Q(e, e, at_one=True) == 1
+
+    def test_Q_noncomparable_is_zero(self):
+        from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
+
+        W = WeylGroup(["A", 2])
+        kl = KazhdanLusztigPolynomials(W)
+
+        s1 = W.simple_reflection(1)
+        assert kl.Q(s1, W.one(), at_one=True) == 0
+
+    def test_Q_at_one_agrees_with_interval_inverse(self):
+        from pyw.core.bruhat import BruhatOrder
+        from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
+        from sage.all import matrix
+
+        W = WeylGroup(["A", 2])
+        kl = KazhdanLusztigPolynomials(W)
+        kl._coxeter3 = None
+
+        bruhat = BruhatOrder(W)
+        x = W.one()
+        y = W.long_element()
+        interval = bruhat.interval(x, y)
+
+        p_at_one = matrix(QQ, len(interval), len(interval))
+        for i, w_i in enumerate(interval):
+            for j, w_j in enumerate(interval):
+                if bruhat.le(w_i, w_j):
+                    p_at_one[i, j] = kl.P(w_i, w_j, at_one=True)
+
+        q_at_one = p_at_one.inverse()
+        assert kl.Q(x, y, at_one=True) == q_at_one[0, len(interval) - 1]
+
+    def test_Q_full_polynomial_falls_back_to_inversion(self):
+        from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
+
+        W = WeylGroup(["A", 2])
+        kl = KazhdanLusztigPolynomials(W)
+        kl._coxeter3 = None
+
+        assert kl.Q(W.one(), W.long_element(), at_one=False) == -1
+
+    def test_affine_bounded_elements_include_translation_words(self):
+        from pyw.core.affine_lie_algebra import AffineLieAlgebra
+        from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
+
+        ala = AffineLieAlgebra(["A", 2, 1])
+        W = WeylGroup(["A", 2, 1])
+        kl = KazhdanLusztigPolynomials(W)
+
+        elements = kl.affine_bounded_elements(ala, translation_bounds={1: (-1, 1), 2: (0, 0)})
+        words = {tuple(w.reduced_word()) for w in elements}
+
+        assert () in words
+        assert (1,) in words
+        assert any(len(word) > 1 for word in words)
+
+    def test_affine_bounded_elements_accept_explicit_translations(self):
+        from pyw.core.affine_lie_algebra import AffineLieAlgebra
+        from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
+
+        ala = AffineLieAlgebra(["A", 2, 1])
+        W = WeylGroup(["A", 2, 1])
+        kl = KazhdanLusztigPolynomials(W)
+        beta = ala.affine_weyl_group()._finite_coroot_space.simple_roots()[1]
+
+        elements = kl.affine_bounded_elements(ala, translations=[0, beta, ala.affine_weyl_group().translation(beta)])
+        words = {tuple(w.reduced_word()) for w in elements}
+
+        assert () in words
+        assert any(len(word) > 1 for word in words)
+
+    def test_affine_bounded_elements_reject_conflicting_translation_inputs(self):
+        from pyw.core.affine_lie_algebra import AffineLieAlgebra
+        from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
+
+        ala = AffineLieAlgebra(["A", 2, 1])
+        W = WeylGroup(["A", 2, 1])
+        kl = KazhdanLusztigPolynomials(W)
+        beta = ala.affine_weyl_group()._finite_coroot_space.simple_roots()[1]
+
+        with pytest.raises(ValueError, match="translation_bounds or translations"):
+            kl.affine_bounded_elements(
+                ala,
+                translation_bounds={1: (0, 0)},
+                translations=[beta],
+            )
+
+    def test_affine_bounded_interval_filters_candidates(self):
+        from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
+
+        W = WeylGroup(["A", 2, 1])
+        kl = KazhdanLusztigPolynomials(W)
+
+        e = W.one()
+        s0 = W.simple_reflection(0)
+        candidates = [e, s0, s0 * W.simple_reflection(1)]
+
+        interval = kl.affine_bounded_interval(e, s0, candidates=candidates)
+
+        assert interval == [e, s0]
+
+    def test_affine_bounded_Q_matches_matrix_inversion_on_candidates(self):
+        from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
+
+        W = WeylGroup(["A", 2, 1])
+        kl = KazhdanLusztigPolynomials(W)
+        kl._coxeter3 = None
+
+        e = W.one()
+        s0 = W.simple_reflection(0)
+        candidates = [e, s0]
+
+        assert kl.affine_bounded_Q(e, s0, candidates=candidates, at_one=True) == -1
+
+    def test_affine_bounded_Q_tilde_is_legacy_alias(self):
+        from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
+
+        W = WeylGroup(["A", 2, 1])
+        kl = KazhdanLusztigPolynomials(W)
+        kl._coxeter3 = None
+
+        e = W.one()
+        s0 = W.simple_reflection(0)
+        candidates = [e, s0]
+
+        assert kl.affine_bounded_Q_tilde(e, s0, candidates=candidates, at_one=True) == kl.affine_bounded_Q(e, s0, candidates=candidates, at_one=True)
+
+    def test_affine_stabilizer_contains_identity_for_bounded_search(self):
+        from pyw.core.affine_lie_algebra import AffineLieAlgebra
+        from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
+
+        ala = AffineLieAlgebra(["A", 2, 1])
+        W = WeylGroup(["A", 2, 1])
+        kl = KazhdanLusztigPolynomials(W)
+
+        Lambda_sage = ala.fundamental_weights_sage()
+        Lambda = Lambda_sage[0]
+        rho_hat = sum(Lambda_sage.values())
+        candidates = [W.one(), W.simple_reflection(0)]
+
+        stabilizer = kl.affine_stabilizer(
+            Lambda,
+            rho_hat=rho_hat,
+            candidates=candidates,
+            algebra=ala,
+        )
+
+        assert W.one() in stabilizer
+
+    def test_affine_bounded_parabolic_Q_tilde_diagonal_is_one(self):
+        from pyw.core.affine_lie_algebra import AffineLieAlgebra
+        from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
+
+        ala = AffineLieAlgebra(["A", 2, 1])
+        W = WeylGroup(["A", 2, 1])
+        kl = KazhdanLusztigPolynomials(W)
+        kl._coxeter3 = None
+
+        candidates = kl.affine_bounded_elements(ala, translation_bounds={1: (0, 0), 2: (0, 0)})
+        stabilizer = [W.one()]
+
+        assert kl.affine_bounded_parabolic_Q_tilde(
+            W.one(),
+            W.one(),
+            candidates=candidates,
+            stabilizer_candidates=stabilizer,
+            at_one=True,
+        ) == 1
+
+    def test_affine_bounded_parabolic_Q_tilde_noncomparable_is_zero(self):
+        from pyw.core.affine_lie_algebra import AffineLieAlgebra
+        from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
+
+        ala = AffineLieAlgebra(["A", 2, 1])
+        W = WeylGroup(["A", 2, 1])
+        kl = KazhdanLusztigPolynomials(W)
+        kl._coxeter3 = None
+
+        candidates = kl.affine_bounded_elements(ala, translation_bounds={1: (0, 0), 2: (0, 0)})
+        stabilizer = [W.one()]
+        s0 = W.simple_reflection(0)
+
+        assert kl.affine_bounded_parabolic_Q_tilde(
+            s0,
+            W.one(),
+            candidates=candidates,
+            stabilizer_candidates=stabilizer,
+            at_one=True,
+        ) == 0
+
+    def test_parabolic_Q_tilde_rejects_left_cosets(self):
+        from pyw.core.bruhat import BruhatOrder, CosetRepresentative
+        from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
+
+        W = WeylGroup(["A", 2])
+        kl = KazhdanLusztigPolynomials(W)
+        bruhat = BruhatOrder(W)
+        W_I = bruhat.parabolic_subgroup({1})
+
+        x = CosetRepresentative(W.one(), W_I, left=True)
+        y = CosetRepresentative(W.simple_reflection(2), W_I, left=True)
+
+        with pytest.raises(NotImplementedError, match="right cosets only"):
+            kl.parabolic_Q_tilde(x, y, at_one=True)
+
+    def test_Q_tilde_dispatches_to_coset_level_api(self):
+        from pyw.core.bruhat import BruhatOrder, CosetRepresentative
+        from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
+
+        W = WeylGroup(["A", 2])
+        kl = KazhdanLusztigPolynomials(W)
+        bruhat = BruhatOrder(W)
+        W_I = bruhat.parabolic_subgroup({1})
+
+        x = CosetRepresentative(W.one(), W_I, left=True)
+        y = CosetRepresentative(W.simple_reflection(2), W_I, left=True)
+
+        with pytest.raises(NotImplementedError, match="right cosets only"):
+            kl.Q_tilde(x, y, at_one=True)
+
+    def test_parabolic_Q_tilde_requires_same_parabolic(self):
+        from pyw.core.bruhat import BruhatOrder, CosetRepresentative
+        from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
+
+        W = WeylGroup(["A", 2])
+        kl = KazhdanLusztigPolynomials(W)
+        bruhat = BruhatOrder(W)
+        W_1 = bruhat.parabolic_subgroup({1})
+        W_2 = bruhat.parabolic_subgroup({2})
+
+        x = CosetRepresentative(W.one(), W_1, left=False)
+        y = CosetRepresentative(W.simple_reflection(2), W_2, left=False)
+
+        with pytest.raises(ValueError, match="same parabolic subgroup"):
+            kl.parabolic_Q_tilde(x, y, at_one=True)
+
+    def test_parabolic_Q_tilde_rejects_infinite_groups(self):
+        from pyw.core.bruhat import BruhatOrder, CosetRepresentative
+        from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
+
+        W = WeylGroup(["A", 2, 1])
+        kl = KazhdanLusztigPolynomials(W)
+        bruhat = BruhatOrder(W)
+        W_I = bruhat.parabolic_subgroup({1})
+
+        x = CosetRepresentative(W.one(), W_I, left=False)
+        y = CosetRepresentative(W.simple_reflection(0), W_I, left=False)
+
+        with pytest.raises(ValueError, match="finite groups only"):
+            kl.parabolic_Q_tilde(x, y, at_one=True)
+
+    def test_cache_round_trip_for_Q_at_one(self, tmp_path):
+        from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
+
+        W = WeylGroup(["A", 2])
+        kl = KazhdanLusztigPolynomials(W, cache_dir=tmp_path)
+        value = kl.Q(W.one(), W.long_element(), at_one=True)
+
+        cache_path = kl.save_cache()
+        payload = json.loads(cache_path.read_text())
+
+        assert payload["cache_version"] == kl.CACHE_VERSION
+        assert payload["value_kind"] == "Q_at_one"
+
+        restored = KazhdanLusztigPolynomials(W, cache_dir=tmp_path)
+        assert restored.load_cache(cache_path.name)
+        assert restored.Q(W.one(), W.long_element(), at_one=True) == value
+
+    def test_cache_rejects_mismatched_cartan_type(self, tmp_path):
+        from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
+
+        W_a2 = WeylGroup(["A", 2])
+        W_b2 = WeylGroup(["B", 2])
+
+        writer = KazhdanLusztigPolynomials(W_a2, cache_dir=tmp_path)
+        writer.Q(W_a2.one(), W_a2.long_element(), at_one=True)
+        cache_path = writer.save_cache("shared.json")
+
+        reader = KazhdanLusztigPolynomials(W_b2, cache_dir=tmp_path)
+        assert not reader.load_cache(cache_path.name)
+
+    def test_cache_rejects_invalid_payload(self, tmp_path):
+        from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
+
+        W = WeylGroup(["A", 2])
+        kl = KazhdanLusztigPolynomials(W, cache_dir=tmp_path)
+        bad_path = tmp_path / "kl_cache_bad.json"
+        bad_path.write_text("not valid json")
+
+        assert not kl.load_cache(bad_path.name)
+
+    def test_cache_rejects_wrong_value_kind(self, tmp_path):
+        from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
+
+        W = WeylGroup(["A", 2])
+        kl = KazhdanLusztigPolynomials(W, cache_dir=tmp_path)
+        bad_path = tmp_path / "wrong-kind.json"
+        bad_path.write_text(
+            json.dumps(
+                {
+                    "cache_version": kl.CACHE_VERSION,
+                    "cartan_type": str(W.cartan_type()),
+                    "value_kind": "Q_tilde_polynomial",
+                    "Q_at_one_cache": {},
+                }
+            )
+        )
+
+        assert not kl.load_cache(bad_path.name)
+
+    def test_cache_rejects_wrong_version(self, tmp_path):
+        from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
+
+        W = WeylGroup(["A", 2])
+        kl = KazhdanLusztigPolynomials(W, cache_dir=tmp_path)
+        bad_path = tmp_path / "wrong-version.json"
+        bad_path.write_text(
+            json.dumps(
+                {
+                    "cache_version": kl.CACHE_VERSION + 1,
+                    "cartan_type": str(W.cartan_type()),
+                    "value_kind": "Q_at_one",
+                    "Q_at_one_cache": {},
+                }
+            )
+        )
+
+        assert not kl.load_cache(bad_path.name)
+
+    def test_cache_rejects_legacy_dat_payload(self, tmp_path):
+        from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
+
+        W = WeylGroup(["A", 2])
+        kl = KazhdanLusztigPolynomials(W, cache_dir=tmp_path)
+        legacy_path = tmp_path / "legacy.dat"
+        legacy_path.write_text(json.dumps({"old": "format"}))
+
+        assert not kl.load_cache(legacy_path.name)
 
 
 class TestFormalCharacter:
@@ -231,24 +611,3 @@ class TestVermaCharacter:
         ch = verma.character(max_grade=3)
 
         assert ch[0] != 0
-
-
-class TestKacWakimotoCharacter:
-    """Tests for Kac-Wakimoto character formula."""
-
-    @pytest.mark.skip(reason="Requires full implementation verification")
-    def test_character_A2_level_1(self):
-        """Character computation for A2 at level 1."""
-        from pyw.algorithms.kac_wakimoto_character import KacWakimotoCharacter
-        from pyw.core.affine_lie_algebra import AffineLieAlgebra
-        from pyw.core.affine_weight import AffineWeight
-        from pyw.fractional.level import FractionalLevel
-
-        ala = AffineLieAlgebra(["A", 2, 1])
-        level = FractionalLevel(["A", 2, 1], p=4, u=1)
-        Lambda = AffineWeight.affine_fundamental_weight(ala, 1)
-
-        kw = KacWakimotoCharacter(ala, level)
-        ch = kw.character(Lambda, max_grade=3)
-
-        assert ch[0] == 1
