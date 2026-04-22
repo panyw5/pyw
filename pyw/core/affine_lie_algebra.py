@@ -20,8 +20,25 @@ Key conventions from Di Francesco:
 Reference: Di Francesco et al., Chapter 14, Eqs. (14.23), (14.63), (14.64), (14.69)
 """
 
-from typing import Union, Tuple, Dict, Any, Optional
+from typing import Union, Tuple, Dict, Any, Optional, Protocol
 from sage.all import RootSystem, CartanType, WeylGroup, QQ, ZZ, Integer, Rational
+
+
+class SageAffineWeylGroupLike(Protocol):
+    def one(self) -> Any: ...
+    def simple_reflection(self, i: int) -> Any: ...
+    def from_reduced_word(self, word: Any) -> Any: ...
+    def generators(self) -> Any: ...
+    def index_set(self) -> Any: ...
+    def domain(self) -> Any: ...
+
+
+class SageAffineWeightLatticeLike(Protocol):
+    def fundamental_weights(self) -> Any: ...
+    def simple_roots(self) -> Any: ...
+    def index_set(self) -> Any: ...
+    def zero(self) -> Any: ...
+    def weyl_group(self, prefix: str = ...) -> SageAffineWeylGroupLike: ...
 
 
 class AffineLieAlgebra:
@@ -44,8 +61,8 @@ class AffineLieAlgebra:
     --------
     >>> from pyw.core.affine_lie_algebra import AffineLieAlgebra
     >>> ala = AffineLieAlgebra(['A', 2, 1])
-    >>> marks = ala.get_marks()
-    >>> comarks = ala.get_comarks()
+    >>> marks = ala.marks
+    >>> comarks = ala.comarks
     >>> print(f"Marks: {marks}, Comarks: {comarks}")
     """
 
@@ -73,21 +90,39 @@ class AffineLieAlgebra:
         # Cache for marks and comarks
         self._marks = None
         self._comarks = None
+        self._coxeter_number = None
+        self._dual_coxeter_number = None
+        self._dim = None
+        self._num_roots = None
+        self._num_positive_roots = None
+        self._num_negative_roots = None
+        self._cartan_matrix = None
 
         # Cache for special elements
         self._delta = None
         self._theta = None
+        self._rho = None
         self._rho_hat = None
 
         # Cache for Weyl group wrappers
         self._finite_weyl_group_cache = None
         self._extended_affine_weyl_group_cache = None
+        self._sage_affine_weight_lattice_cache = None
+        self._sage_affine_weyl_group_cache = {}
 
         # Finite type information (for affine types)
         self._finite_type = None
         self._finite_root_system = None
 
         self._setup()
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, AffineLieAlgebra):
+            return False
+        return tuple(self._cartan_type) == tuple(other._cartan_type)
+
+    def __hash__(self) -> int:
+        return hash(tuple(self._cartan_type))
 
     def _setup(self) -> None:
         """Initialize SageMath structures."""
@@ -165,7 +200,54 @@ class AffineLieAlgebra:
     @property
     def rank(self) -> int:
         """Return the rank of the (finite) Lie algebra."""
+        if self.is_affine and self._finite_root_system is not None:
+            return self._finite_root_system.cartan_type().rank()
         return self._cartan_type_obj.rank()
+
+    @property
+    def marks(self) -> Dict[int, int]:
+        """Cached affine marks a_i."""
+        if self._marks is None:
+            if self.is_affine and self._finite_root_system is not None:
+                highest_root = self._finite_root_system.root_lattice().highest_root()
+                coeffs = highest_root.monomial_coefficients()
+                self._marks = {0: 1}
+                for i in self._finite_root_system.root_lattice().index_set():
+                    self._marks[int(i)] = int(coeffs.get(i, 0))
+            else:
+                highest_root = self._root_system.root_lattice().highest_root()
+                coeffs = highest_root.monomial_coefficients()
+                self._marks = {}
+                for i in self._root_system.root_lattice().index_set():
+                    self._marks[int(i)] = int(coeffs.get(i, 0))
+        return self._marks
+
+    @property
+    def comarks(self) -> Dict[int, int]:
+        """Cached affine comarks a_i^\u2020."""
+        if self._comarks is None:
+            ct = self._cartan_type_obj
+            if self.is_affine and hasattr(ct, "acheck"):
+                sage_comarks = ct.acheck()
+                self._comarks = {i: int(sage_comarks[i]) for i in sage_comarks.keys()}
+            else:
+                self._comarks = dict(self.marks)
+        return self._comarks
+
+    @property
+    def coxeter_number(self) -> Optional[int]:
+        """Cached Coxeter number h of the underlying finite type when available."""
+        if self._coxeter_number is None:
+            cartan_type = self._cartan_type_obj
+            if hasattr(cartan_type, "coxeter_number"):
+                self._coxeter_number = int(cartan_type.coxeter_number())
+            elif self.is_affine and self._finite_root_system is not None:
+                finite_ct = self._finite_root_system.cartan_type()
+                if hasattr(finite_ct, "coxeter_number"):
+                    self._coxeter_number = int(finite_ct.coxeter_number())
+            else:
+                self._coxeter_number = None
+        return self._coxeter_number
 
     @property
     def affine_rank(self) -> int:
@@ -174,81 +256,46 @@ class AffineLieAlgebra:
             return self._cartan_type_obj.rank()
         return self.rank
 
+    @property
+    def num_positive_roots(self) -> int:
+        """Number of positive roots of the underlying finite root system."""
+        if self._num_positive_roots is None:
+            self._num_positive_roots = len(self.positive_roots())
+        return self._num_positive_roots
+
+    @property
+    def num_negative_roots(self) -> int:
+        """Number of negative roots of the underlying finite root system."""
+        if self._num_negative_roots is None:
+            self._num_negative_roots = len(self.negative_roots())
+        return self._num_negative_roots
+
+    @property
+    def num_roots(self) -> int:
+        """Total number of roots of the underlying finite root system."""
+        if self._num_roots is None:
+            self._num_roots = self.num_positive_roots + self.num_negative_roots
+        return self._num_roots
+
+    @property
+    def dim(self) -> int:
+        """Dimension of the underlying finite simple Lie algebra.
+
+        For finite simple Lie algebras,
+        $\dim \mathfrak g = \mathrm{rank}(\mathfrak g) + |\Phi|$.
+
+        For affine types, this returns the dimension of the underlying finite
+        Lie algebra, matching ``finite_lie_algebra.dim``.
+        """
+        if self._dim is None:
+            self._dim = self.rank + self.num_roots
+        return self._dim
+
     # ==========================================================================
     # Marks and Comarks (Di Francesco §14.1.3)
     # ==========================================================================
 
-    def get_marks(self) -> Dict[int, int]:
-        """
-        Get the marks (a_i) for this Cartan type.
-
-        Marks are the coefficients in the expansion of the highest root θ
-        in terms of simple roots: θ = Σ a_i α_i.
-
-        For affine types, a_0 = 1 by definition.
-
-        Returns
-        -------
-        dict
-            Dictionary mapping simple root indices to marks a_i
-
-        Examples
-        --------
-        >>> ala = AffineLieAlgebra(['A', 2, 1])
-        >>> ala.get_marks()
-        {0: 1, 1: 1, 2: 1}
-
-        >>> ala = AffineLieAlgebra(['G', 2, 1])
-        >>> ala.get_marks()
-        {0: 1, 1: 3, 2: 1}
-
-        Notes
-        -----
-        See Di Francesco Eq. (14.38) and Fig. 14.1 for marks values.
-        """
-        if self._marks is None:
-            ct = self._cartan_type_obj
-            # SageMath uses .c() for marks (a_i)
-            sage_marks = ct.c()
-            self._marks = {i: int(sage_marks[i]) for i in sage_marks.keys()}
-        return self._marks
-
-    def get_comarks(self) -> Dict[int, int]:
-        """
-        Get the comarks (a_i^∨) for this Cartan type.
-
-        Comarks are the coefficients in the expansion of the highest
-        coroot θ^∨ in terms of simple coroots.
-
-        For affine types, a_0^∨ = 1 by definition.
-
-        Returns
-        -------
-        dict
-            Dictionary mapping simple root indices to comarks a_i^∨
-
-        Examples
-        --------
-        >>> ala = AffineLieAlgebra(['A', 2, 1])
-        >>> ala.get_comarks()
-        {0: 1, 1: 1, 2: 1}
-
-        >>> ala = AffineLieAlgebra(['C', 2, 1])
-        >>> ala.get_comarks()
-        {0: 1, 1: 1, 2: 1}
-
-        Notes
-        -----
-        See Di Francesco Eq. (14.39) and Fig. 14.1 for comarks values.
-        For simply-laced algebras, marks = comarks.
-        """
-        if self._comarks is None:
-            ct = self._cartan_type_obj
-            # Comarks are the dual marks (acheck) from the Cartan type
-            sage_comarks = ct.acheck()
-            self._comarks = {i: int(sage_comarks[i]) for i in sage_comarks.keys()}
-        return self._comarks
-
+    @property
     def dual_coxeter_number(self) -> int:
         """
         Get the dual Coxeter number g^∨ = Σ a_i^∨.
@@ -260,18 +307,27 @@ class AffineLieAlgebra:
 
         Examples
         --------
-        >>> AffineLieAlgebra(['A', 2, 1]).dual_coxeter_number()
+        >>> AffineLieAlgebra(['A', 2, 1]).dual_coxeter_number
         3
-        >>> AffineLieAlgebra(['B', 2, 1]).dual_coxeter_number()
+        >>> AffineLieAlgebra(['B', 2, 1]).dual_coxeter_number
         3
-        >>> AffineLieAlgebra(['G', 2, 1]).dual_coxeter_number()
+        >>> AffineLieAlgebra(['G', 2, 1]).dual_coxeter_number
         4
 
         Notes
         -----
         See Di Francesco Eq. (14.42): g = Σ a_i^∨
         """
-        return sum(self.get_comarks().values())
+        if self._dual_coxeter_number is None:
+            if self.is_affine:
+                self._dual_coxeter_number = sum(self.comarks.values())
+            elif hasattr(self._cartan_type_obj, "dual_coxeter_number"):
+                self._dual_coxeter_number = int(self._cartan_type_obj.dual_coxeter_number())
+            elif hasattr(self._cartan_type_obj, "coxeter_number"):
+                self._dual_coxeter_number = int(self._cartan_type_obj.coxeter_number())
+            else:
+                self._dual_coxeter_number = sum(self.comarks.values())
+        return self._dual_coxeter_number
 
     # ==========================================================================
     # Scalar Products (Di Francesco §14.1.2)
@@ -352,6 +408,16 @@ class AffineLieAlgebra:
         Internal method used by scalar_product().
         """
         from sage.all import matrix, QQ
+
+        parent1 = getattr(lambda1, "parent", lambda: None)()
+        parent2 = getattr(lambda2, "parent", lambda: None)()
+        parent1_name = type(parent1).__name__.lower() if parent1 is not None else ""
+        parent2_name = type(parent2).__name__.lower() if parent2 is not None else ""
+        if "root" in parent1_name or "root" in parent2_name:
+            try:
+                return lambda1.to_ambient().dot_product(lambda2.to_ambient())
+            except (AttributeError, TypeError, ValueError):
+                pass
 
         # Get the finite root system (for affine types)
         if self.is_affine:
@@ -727,15 +793,8 @@ class AffineLieAlgebra:
         # IMPORTANT: Coweights must be reconstructed using fundamental_weights, NOT simple_roots!
         # For coweight Λ_i^∨ with coefficient c_i, we need c_i * Λ_i (fundamental weight),
         # not c_i * α_i (simple root), since Λ_i^∨ is dual to α_i, not to Λ_i.
-        alpha_vee_coeffs = alpha_vee.monomial_coefficients()
         if hasattr(lambda_finite, "parent"):
-            parent = lambda_finite.parent()
-            # Reconstruct alpha_vee in the weight space using fundamental_weights
-            fundamental_weights = parent.fundamental_weights()
-            alpha_vee_in_parent = parent.zero()
-            for idx, coeff in alpha_vee_coeffs.items():
-                if idx in fundamental_weights.keys():
-                    alpha_vee_in_parent += coeff * fundamental_weights[idx]
+            alpha_vee_in_parent = self.coweight_to_weight(alpha_vee, finite=not self.is_affine)
         else:
             alpha_vee_in_parent = alpha_vee
 
@@ -744,8 +803,15 @@ class AffineLieAlgebra:
 
         # Simplified grade correction (valid for all k including k = 0):
         # n' = n - (λ, α∨) - k|α∨|²/2
-        lambda_dot_alpha_vee = self.scalar_product(lambda_finite, alpha_vee)
-        alpha_vee_norm_sq = self.scalar_product(alpha_vee, alpha_vee)
+        try:
+            lambda_dot_alpha_vee = lambda_finite.dot(alpha_vee)
+        except (AttributeError, TypeError):
+            lambda_dot_alpha_vee = self._finite_scalar_product(lambda_finite, alpha_vee_in_parent)
+
+        try:
+            alpha_vee_norm_sq = alpha_vee.to_ambient().dot_product(alpha_vee.to_ambient())
+        except (AttributeError, TypeError, ValueError):
+            alpha_vee_norm_sq = self.scalar_product(alpha_vee, alpha_vee)
         new_n = n - lambda_dot_alpha_vee - k * alpha_vee_norm_sq / 2
 
         return AffineWeight(self, new_lambda, k, new_n)
@@ -815,30 +881,38 @@ class AffineLieAlgebra:
 
     def theta(self):
         """
-        Get the highest root θ of the finite Lie algebra.
-
-        Returns
-        -------
-        The highest root θ
-
-        Examples
-        --------
-        >>> ala = AffineLieAlgebra(['A', 2, 1])
-        >>> theta = ala.theta()
-        >>> # For A₂, θ = α₁ + α₂
+        Get the highest root θ for finite Lie algebras.
 
         Notes
         -----
-        The highest root θ is used to define α₀ = -θ + δ.
-        See Di Francesco Eq. (14.32).
+        For affine Lie algebras, θ is not an affine root object in this API.
+        Use ``theta_hat()`` instead.
         """
-        if self._finite_root_system is not None:
-            # Use finite root system
-            Q_finite = self._finite_root_system.root_lattice()
-            return Q_finite.highest_root()
-        else:
-            # Finite type - use current root system
-            return self._root_lattice.highest_root()
+        if self.is_affine:
+            raise ValueError("theta() is only available for finite Cartan types; use theta_hat()")
+
+        if self._theta is None:
+            self._theta = self._root_lattice.highest_root()
+        return self._theta
+
+    def theta_hat(self):
+        """
+        Get the affine highest root θ̂ = (θ; 0; 0).
+
+        Returns
+        -------
+        AffineWeight
+            The affine highest root θ̂
+
+        Notes
+        -----
+        This extends the finite highest root θ to affine notation.
+        """
+        from .affine_weight import AffineWeight
+
+        if not self.is_affine:
+            raise ValueError("theta_hat() is only available for affine Cartan types")
+        return AffineWeight.theta_hat(self)
 
     def alpha_0(self):
         """
@@ -852,9 +926,29 @@ class AffineLieAlgebra:
         -----
         Di Francesco Eq. (14.32): α₀ = (-θ; 0; 1) = -θ + δ
         """
-        theta = self.theta()
+        theta = self._finite_root_system.root_lattice().highest_root()
         # α₀ = -θ + δ, but as a finite root it's -θ
         return -theta
+
+    def rho(self):
+        """
+        Get the finite Weyl vector ρ = Σ_i ω_i of the underlying finite algebra.
+
+        For affine types, this returns ρ of ``finite_lie_algebra``.
+        """
+        if self._rho is None:
+            if self.is_affine:
+                finite_ws = self._finite_root_system.weight_space()
+                weights = list(finite_ws.fundamental_weights().values())
+                self._rho = weights[0]
+                for w in weights[1:]:
+                    self._rho = self._rho + w
+            else:
+                weights = list(self.fundamental_weights().values())
+                self._rho = weights[0]
+                for w in weights[1:]:
+                    self._rho = self._rho + w
+        return self._rho
 
     def rho_hat(self):
         """
@@ -1031,8 +1125,13 @@ class AffineLieAlgebra:
         [alpha[1], alpha[1] + alpha[2], alpha[2]]
         """
         if self.is_affine:
-            return list(self.finite_lie_algebra.positive_roots())
-        return list(self._root_system.root_lattice().positive_roots())
+            return list(self._finite_root_system.root_lattice().positive_roots())
+        return list(self._root_lattice.positive_roots())
+
+    def wrap_root(self, root: Any):
+        from .root_system import RootWithReflection
+
+        return RootWithReflection(root)
 
     def negative_roots(self):
         """
@@ -1053,9 +1152,9 @@ class AffineLieAlgebra:
         [-alpha[1], -alpha[1] - alpha[2], -alpha[2]]
         """
         if self.is_affine:
-            return list(self.finite_lie_algebra.negative_roots())
+            return [-root for root in self._finite_root_system.root_lattice().positive_roots()]
 
-        rl = self._root_system.root_lattice()
+        rl = self._root_lattice
         if hasattr(rl, "negative_roots"):
             return list(rl.negative_roots())
         return [-root for root in rl.positive_roots()]
@@ -1226,9 +1325,12 @@ class AffineLieAlgebra:
 
         return result
 
+    @property
     def cartan_matrix(self):
-        """Get the Cartan matrix."""
-        return self._cartan_type_obj.cartan_matrix()
+        """Cached Cartan matrix."""
+        if self._cartan_matrix is None:
+            self._cartan_matrix = self._cartan_type_obj.cartan_matrix()
+        return self._cartan_matrix
 
     # ==========================================================================
     # Nilpotent Orbits
@@ -1301,6 +1403,30 @@ class AffineLieAlgebra:
             self._extended_affine_weyl_group_cache = AffineWeylGroupSemidirect(self)
         return self._extended_affine_weyl_group_cache
 
+    def affine_weight_lattice_sage(self) -> SageAffineWeightLatticeLike:
+        """Return Sage's extended affine weight lattice used by Algebra.py."""
+        if not self.is_affine:
+            raise ValueError("affine_weight_lattice_sage() is only available for affine Cartan types")
+        if self._sage_affine_weight_lattice_cache is None:
+            self._sage_affine_weight_lattice_cache = RootSystem(list(self._cartan_type)).weight_lattice(
+                extended=True
+            )
+        return self._sage_affine_weight_lattice_cache
+
+    def affine_weyl_group_sage(self, prefix: str = "w") -> SageAffineWeylGroupLike:
+        """Return Sage's affine Weyl group on the extended weight lattice.
+
+        This matches demos/Algebra.py:
+        ``RootSystem(cartanType).weight_lattice(extended=True).weyl_group(prefix=...)``.
+        """
+        if not self.is_affine:
+            raise ValueError("affine_weyl_group_sage() is only available for affine Cartan types")
+        if prefix not in self._sage_affine_weyl_group_cache:
+            self._sage_affine_weyl_group_cache[prefix] = self.affine_weight_lattice_sage().weyl_group(
+                prefix=prefix
+            )
+        return self._sage_affine_weyl_group_cache[prefix]
+
     def extended_affine_weyl_group(self):
         """Return the extended affine Weyl group wrapper W ⋉ P^∨.
 
@@ -1346,6 +1472,62 @@ class AffineLieAlgebra:
                 return i
         raise ValueError("Root not found in simple roots")
 
+    def _basis_root_system(self, finite: bool = True):
+        if finite and self.is_affine:
+            return self._finite_root_system
+        return self._root_system
+
+    def root_to_weight(self, root, finite: bool = True):
+        """Translate a root-space element to the corresponding weight-space element.
+
+        The coefficients are converted from the simple-root basis to the
+        fundamental-weight basis using the Cartan matrix.
+        """
+        from sage.all import QQ, matrix
+
+        rs = self._basis_root_system(finite=finite)
+        root_space = rs.root_space()
+        weight_space = rs.weight_space()
+
+        root_coeffs = root_space(root).monomial_coefficients()
+        cartan = matrix(QQ, rs.cartan_matrix())
+        indices = [int(i) for i in rs.index_set()]
+        fundamental_weights = weight_space.fundamental_weights()
+
+        result = weight_space.zero()
+        for root_idx, root_coeff in root_coeffs.items():
+            i_pos = indices.index(int(root_idx))
+            for j_pos, weight_idx in enumerate(indices):
+                coeff = root_coeff * cartan[i_pos, j_pos]
+                if coeff:
+                    result += coeff * fundamental_weights[weight_idx]
+        return result
+
+    def weight_to_root(self, weight, finite: bool = True):
+        """Translate a weight-space element to the corresponding root-space element.
+
+        The coefficients are converted from the fundamental-weight basis to the
+        simple-root basis using the inverse Cartan matrix.
+        """
+        from sage.all import QQ, matrix
+
+        rs = self._basis_root_system(finite=finite)
+        weight_space = rs.weight_space()
+        root_space = rs.root_space()
+
+        weight_coeffs = weight_space(weight).monomial_coefficients()
+        cartan_inv = matrix(QQ, rs.cartan_matrix()).inverse()
+        indices = [int(i) for i in rs.index_set()]
+        simple_roots = root_space.simple_roots()
+        weight_vector = [QQ(weight_coeffs.get(i, 0)) for i in indices]
+
+        result = root_space.zero()
+        for i_pos, root_idx in enumerate(indices):
+            coeff = sum(weight_vector[j_pos] * cartan_inv[j_pos, i_pos] for j_pos in range(len(indices)))
+            if coeff:
+                result += coeff * simple_roots[root_idx]
+        return result
+
     def level_from_dynkin(self, dynkin_labels: Dict[int, int]) -> int:
         """
         Compute the level k from Dynkin labels [λ₀, λ₁, ..., λ_r].
@@ -1374,7 +1556,7 @@ class AffineLieAlgebra:
         -----
         Di Francesco Eq. (14.54): k = Σ a_i^∨ λ_i
         """
-        comarks = self.get_comarks()
+        comarks = self.comarks
         k = sum(comarks[i] * dynkin_labels.get(i, 0) for i in comarks.keys())
         return k
 
@@ -1409,7 +1591,7 @@ class AffineLieAlgebra:
         -----
         Di Francesco Eq. (14.57): λ₀ = k - (λ, θ)
         """
-        marks = self.get_marks()
+        marks = self.marks
         # Sum over finite marks: (λ, θ) = Σ_{i>0} a_i λ_i
         theta_dot_lambda = sum(marks[i] * finite_labels.get(i, 0) for i in marks.keys() if i != 0)
         return k - theta_dot_lambda
@@ -1601,9 +1783,7 @@ class AffineLieAlgebra:
         - α₀ = -θ + δ (Di Francesco Eq. 14.32)
         - (θ, θ) = 2 for simply-laced algebras (long root normalization)
         """
-        from .affine_weight import AffineWeight
-
-        return AffineWeight.theta_hat(self)
+        return self.theta_hat()
 
     def __repr__(self) -> str:
         return f"AffineLieAlgebra({self._cartan_type})"
@@ -1649,62 +1829,6 @@ def scalar_product(lambda1, lambda2, cartan_type=None):
         # to extract the cartan type from the weight objects
         raise NotImplementedError("cartan_type must be specified")
     return ala.scalar_product(lambda1, lambda2)
-
-
-def get_marks(cartan_type: Union[tuple, list]) -> Dict[int, int]:
-    """
-    Get the marks (a_i) for a Cartan type.
-
-    Convenience function for AffineLieAlgebra.get_marks().
-
-    Parameters
-    ----------
-    cartan_type : tuple or list
-        Cartan type specification
-
-    Returns
-    -------
-    dict
-        Dictionary mapping indices to marks
-
-    Examples
-    --------
-    >>> from pyw.core.affine_lie_algebra import get_marks
-    >>> get_marks(['A', 2, 1])
-    {0: 1, 1: 1, 2: 1}
-    >>> get_marks(['G', 2, 1])
-    {0: 1, 1: 3, 2: 1}
-    """
-    ala = AffineLieAlgebra(cartan_type)
-    return ala.get_marks()
-
-
-def get_comarks(cartan_type: Union[tuple, list]) -> Dict[int, int]:
-    """
-    Get the comarks (a_i^∨) for a Cartan type.
-
-    Convenience function for AffineLieAlgebra.get_comarks().
-
-    Parameters
-    ----------
-    cartan_type : tuple or list
-        Cartan type specification
-
-    Returns
-    -------
-    dict
-        Dictionary mapping indices to comarks
-
-    Examples
-    --------
-    >>> from pyw.core.affine_lie_algebra import get_comarks
-    >>> get_comarks(['A', 2, 1])
-    {0: 1, 1: 1, 2: 1}
-    >>> get_comarks(['F', 4, 1])
-    {0: 1, 1: 1, 2: 1, 3: 2, 4: 2}
-    """
-    ala = AffineLieAlgebra(cartan_type)
-    return ala.get_comarks()
 
 
 def weyl_reflection(alpha, weight, cartan_type: Union[tuple, list]):

@@ -63,6 +63,9 @@ def test_extended_affine_weyl_group_simple_reflections():
     assert s0 is not None
     assert s1 is not None
     assert s2 is not None
+    assert str(s0) == "s_0"
+    assert str(s1) == "s_1"
+    assert str(s2) == "s_2"
 
     # s1 and s2 should be pure reflections (no translation)
     assert s1.reduced_word() == [1]
@@ -101,6 +104,20 @@ def test_extended_affine_weyl_group_action():
     y = s1.action(x)
     assert y is not None
     assert y.level == x.level  # Level should be preserved
+
+
+@pytest.mark.sage
+def test_extended_affine_finite_part_returns_native_sage_element():
+    from pyw.core.affine_lie_algebra import AffineLieAlgebra
+    from pyw.core.weyl_group import ExtendedAffineWeylGroup
+
+    ala = AffineLieAlgebra(["A", 2, 1])
+    W_ext = ExtendedAffineWeylGroup(ala)
+
+    finite_part = W_ext.simple_reflection(1).finite_part
+
+    assert finite_part.parent() is W_ext._W_weight
+    assert finite_part.reduced_word() == [1]
 
 
 @pytest.mark.sage
@@ -249,3 +266,79 @@ def test_extended_affine_weyl_elements_translation_by_fundamental_coweight():
     # The translation should be by Λ1^∨
     coweight_basis = W_ext._finite_coweight_lattice.fundamental_weights()
     assert pure_trans.translation_vector == coweight_basis[1]
+
+
+@pytest.mark.sage
+def test_extended_affine_weyl_elements_as_semi_direct_product_ts_order():
+    """Test ts-order output for extended affine Weyl group elements."""
+    from pyw.core.affine_lie_algebra import AffineLieAlgebra
+    from pyw.core.weyl_group import ExtendedAffineWeylGroup
+
+    ala = AffineLieAlgebra(["A", 2, 1])
+    W_ext = ExtendedAffineWeylGroup(ala)
+
+    elements = W_ext.elements_as_semi_direct_product(
+        translation_bounds={1: (1, 1)}, factor_order="ts"
+    )
+
+    mixed = next(
+        e
+        for e in elements
+        if e.reduced_word() == [1] and e.translation_vector != W_ext._zero_lambda
+    )
+    lambda_ts, finite_part = mixed.semidirect_components("ts")
+    w_coweight = W_ext._W_coweight.from_reduced_word([1])
+
+    assert finite_part.reduced_word() == [1]
+    assert lambda_ts == w_coweight.action(mixed.translation_vector)
+    assert str(mixed).startswith("t_{")
+    assert str(mixed).endswith(" * s1")
+
+
+@pytest.mark.sage
+def test_extended_affine_weyl_elements_as_semi_direct_product_invalid_factor_order():
+    """Invalid factor_order should raise a clear error."""
+    from pyw.core.affine_lie_algebra import AffineLieAlgebra
+    from pyw.core.weyl_group import ExtendedAffineWeylGroup
+
+    ala = AffineLieAlgebra(["A", 2, 1])
+    W_ext = ExtendedAffineWeylGroup(ala)
+
+    with pytest.raises(ValueError, match="factor_order"):
+        W_ext.elements_as_semi_direct_product(translation_bounds={}, factor_order="bad")
+
+
+@pytest.mark.sage
+def test_extended_affine_weyl_elements_accept_explicit_translations():
+    from pyw.core.affine_lie_algebra import AffineLieAlgebra
+    from pyw.core.weyl_group import ExtendedAffineWeylGroup
+
+    ala = AffineLieAlgebra(["A", 2, 1])
+    W_ext = ExtendedAffineWeylGroup(ala)
+    assert W_ext._finite_coweight_lattice is not None
+    lam = W_ext._finite_coweight_lattice.fundamental_weights()[1]
+
+    elements = W_ext.elements_as_semi_direct_product(
+        translations=[lam, W_ext.translation(lam), W_ext._zero_lambda]
+    )
+
+    finite_size = len(list(W_ext._W_weight))
+    assert len(elements) == 2 * finite_size
+    assert elements[0].translation_vector == W_ext._zero_lambda
+    assert elements[finite_size].translation_vector == lam
+
+
+@pytest.mark.sage
+def test_extended_affine_weyl_elements_reject_conflicting_translation_inputs():
+    from pyw.core.affine_lie_algebra import AffineLieAlgebra
+    from pyw.core.weyl_group import ExtendedAffineWeylGroup
+
+    ala = AffineLieAlgebra(["A", 2, 1])
+    W_ext = ExtendedAffineWeylGroup(ala)
+    assert W_ext._finite_coweight_lattice is not None
+
+    with pytest.raises(ValueError, match="translation_bounds or translations"):
+        W_ext.elements_as_semi_direct_product(
+            translation_bounds={1: (0, 0)},
+            translations=[W_ext._finite_coweight_lattice.fundamental_weights()[1]],
+        )

@@ -9,6 +9,60 @@ from typing import List, Tuple, Union, Any
 from sage.all import RootSystem
 
 
+class RootWithReflection:
+    def __init__(self, root: Any) -> None:
+        self._root = root
+
+    @property
+    def sage_root(self) -> Any:
+        return self._root
+
+    def associated_reflection(self) -> tuple[int, ...]:
+        return tuple(int(i) for i in self._root.associated_reflection())
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._root, name)
+
+    def __repr__(self) -> str:
+        return repr(self._root)
+
+    def __str__(self) -> str:
+        return str(self._root)
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, RootWithReflection):
+            return self._root == other._root
+        return self._root == other
+
+    def __hash__(self) -> int:
+        return hash(self._root)
+
+    def __neg__(self) -> Any:
+        return -self._root
+
+    def __add__(self, other: Any) -> Any:
+        if isinstance(other, RootWithReflection):
+            return self._root + other._root
+        return self._root + other
+
+    def __radd__(self, other: Any) -> Any:
+        return other + self._root
+
+    def __sub__(self, other: Any) -> Any:
+        if isinstance(other, RootWithReflection):
+            return self._root - other._root
+        return self._root - other
+
+    def __rsub__(self, other: Any) -> Any:
+        return other - self._root
+
+    def __mul__(self, other: Any) -> Any:
+        return self._root * other
+
+    def __rmul__(self, other: Any) -> Any:
+        return other * self._root
+
+
 class AffineRootSystem:
     """
     Wrapper class for SageMath RootSystem supporting finite and affine types.
@@ -239,3 +293,6 @@ class AffineRootSystem:
             String representation showing the Cartan type
         """
         return f"AffineRootSystem({self._cartan_type})"
+
+    def wrap_root(self, root: Any) -> RootWithReflection:
+        return RootWithReflection(root)

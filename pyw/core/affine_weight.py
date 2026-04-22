@@ -76,6 +76,16 @@ def _rational_to_latex(value: Any) -> str:
     return str(value)
 
 
+def _rational_to_legacy(value: Any) -> str:
+    if hasattr(value, "numerator") and hasattr(value, "denominator"):
+        num = value.numerator()
+        den = value.denominator()
+        if den == 1:
+            return str(num)
+        return f"{num}/{den}"
+    return str(value)
+
+
 def _weight_to_latex(weight: Any) -> str:
     """
     Convert a SageMath weight to LaTeX representation.
@@ -549,7 +559,7 @@ class AffineWeight:
         mc = sage_weight.monomial_coefficients()
 
         # Compute level from Dynkin labels: k = Σ a_i^∨ λ_i
-        comarks = algebra.get_comarks()
+        comarks = algebra.comarks
         level = sum(comarks.get(i, 0) * mc.get(i, 0) for i in comarks.keys())
 
         # Extract finite part: project onto finite weight space (indices > 0)
@@ -618,6 +628,65 @@ class AffineWeight:
                 result += int(coeff) * affine_Lambda[i]
 
         return result
+
+    def to_legacy_expression(self) -> str:
+        if not self._algebra.is_affine:
+            raise ValueError("Legacy affine expression export requires an affine algebra")
+
+        finite_mc = self._finite_part.monomial_coefficients()
+        finite_index_set = self._algebra._finite_root_system.weight_space().index_set()
+        comarks = self._algebra.comarks
+        finite_sum = sum(QQ(comarks.get(i, 0)) * QQ(finite_mc.get(i, 0)) for i in finite_index_set)
+        lambda_0 = QQ(self._level) - finite_sum
+
+        signed_terms: list[tuple[str, str]] = []
+
+        def append_symbol(coeff: Any, symbol: str) -> None:
+            coeff = QQ(coeff)
+            if coeff == 0:
+                return
+            sign = "-" if coeff < 0 else "+"
+            abs_coeff = -coeff if coeff < 0 else coeff
+            magnitude = _rational_to_legacy(abs_coeff)
+            if abs_coeff == 1:
+                term = symbol
+            else:
+                term = f"{magnitude}*{symbol}"
+            signed_terms.append((sign, term))
+
+        append_symbol(lambda_0, "Lambda[0]")
+        for idx in sorted(finite_index_set):
+            append_symbol(finite_mc.get(idx, 0), f"Lambda[{idx}]")
+        append_symbol(QQ(self._grade), "delta")
+
+        if not signed_terms:
+            return "0"
+
+        first_sign, first_term = signed_terms[0]
+        pieces = [first_term if first_sign == "+" else f"-{first_term}"]
+        for sign, term in signed_terms[1:]:
+            pieces.append(f" {sign} {term}")
+        return "".join(pieces)
+
+    def finite_part_in_fundamental_weight_basis(self) -> Any:
+        """Return the finite part rewritten in the fundamental-weight basis."""
+        if self._algebra.is_affine:
+            finite_ws = self._algebra._finite_root_system.weight_space()
+        else:
+            finite_ws = self._algebra.root_system().weight_space()
+        return finite_ws(self._finite_part)
+
+    def finite_part_in_simple_root_basis(self) -> Any:
+        """Return the finite part rewritten in the simple-root basis."""
+        return self._algebra.weight_to_root(self.finite_part_in_fundamental_weight_basis(), finite=True)
+
+    def to_fundamental_weight_basis(self) -> Tuple[Any, Any, Any]:
+        """Return ``(finite_part, level, grade)`` with finite part in weight basis."""
+        return (self.finite_part_in_fundamental_weight_basis(), self.level, self.grade)
+
+    def to_simple_root_basis(self) -> Tuple[Any, Any, Any]:
+        """Return ``(finite_part, level, grade)`` with finite part in root basis."""
+        return (self.finite_part_in_simple_root_basis(), self.level, self.grade)
 
     # =========================================================================
     # Weyl Group Actions (Di Francesco Eq. 14.64)
@@ -717,6 +786,9 @@ class AffineWeight:
         """
         affine_root = AffineWeight.affine_simple_root(self._algebra, i)
         return self.weyl_reflect(affine_root)
+
+    def associated_reflection(self) -> tuple[int, ...]:
+        return self._algebra.affine_weyl_group().associated_reflection_word(self)
 
     def translate(self, beta: Any) -> "AffineWeight":
         """
@@ -872,7 +944,7 @@ class AffineWeight:
             finite_part = finite_Lambda[i]
 
         # Level for fundamental weights is the comark
-        comarks = algebra.get_comarks()
+        comarks = algebra.comarks
         level = comarks.get(i, 1)
 
         return cls(algebra, finite_part, level=level, grade=0)
@@ -918,38 +990,18 @@ class AffineWeight:
         if not algebra.is_affine:
             raise ValueError("Algebra must be affine type")
 
-        from sage.all import matrix, QQ
-
-        # Use weight space to express roots in terms of fundamental weights
-        finite_ws = algebra._finite_root_system.weight_space()
-        finite_Lambda = finite_ws.fundamental_weights()
-        C = matrix(QQ, algebra._finite_root_system.cartan_matrix())
-        finite_indices = list(algebra._finite_root_system.index_set())
-
-        def root_to_weight_space(root_coeffs):
-            """Convert root (in simple root basis) to weight space.
-
-            α = Σ_i c_i α_i = Σ_i c_i (Σ_j C_ij Λ_j) = Σ_j (Σ_i c_i C_ij) Λ_j
-            """
-            result = finite_ws.zero()
-            for root_idx, root_coeff in root_coeffs.items():
-                i_pos = finite_indices.index(root_idx)
-                for j_pos, j_idx in enumerate(finite_indices):
-                    result += root_coeff * C[i_pos, j_pos] * finite_Lambda[j_idx]
-            return result
-
         if i == 0:
             # ̂α₀ = (-θ; 0; 1) where θ is highest root
             theta_lattice = algebra._finite_root_system.root_lattice().highest_root()
-            theta_coeffs = theta_lattice.monomial_coefficients()
-            theta_in_ws = root_to_weight_space(theta_coeffs)
+            theta_in_ws = algebra.root_to_weight(theta_lattice, finite=True)
             return cls(algebra, -theta_in_ws, level=0, grade=1)
         else:
             # ̂α_i = (α_i; 0; 0) for i > 0
-            # α_i = Σ_j C_ij Λ_j
+            finite_indices = [int(idx) for idx in algebra._finite_root_system.index_set()]
             if i not in finite_indices:
                 raise ValueError(f"Index {i} not in range 1..{algebra.rank}")
-            alpha_i_in_ws = root_to_weight_space({i: 1})
+            alpha_i = algebra._finite_root_system.root_lattice().simple_roots()[i]
+            alpha_i_in_ws = algebra.root_to_weight(alpha_i, finite=True)
             return cls(algebra, alpha_i_in_ws, level=0, grade=0)
 
     @classmethod
@@ -994,7 +1046,7 @@ class AffineWeight:
         rho_finite = sum(finite_Lambda.values())
 
         # Level = dual Coxeter number = Σ a_i^∨
-        g = algebra.dual_coxeter_number()
+        g = algebra.dual_coxeter_number
 
         return cls(algebra, rho_finite, level=g, grade=0)
 
@@ -1041,24 +1093,9 @@ class AffineWeight:
         if not algebra.is_affine:
             raise ValueError("Algebra must be affine type")
 
-        from sage.all import matrix, QQ
-
         # Get highest root from finite root lattice
         theta_lattice = algebra._finite_root_system.root_lattice().highest_root()
-        theta_coeffs = theta_lattice.monomial_coefficients()
-
-        # Convert to weight space: α = Σ_i c_i α_i = Σ_j (Σ_i c_i C_ij) Λ_j
-        finite_ws = algebra._finite_root_system.weight_space()
-        finite_Lambda = finite_ws.fundamental_weights()
-        C = matrix(QQ, algebra._finite_root_system.cartan_matrix())
-        finite_indices = list(algebra._finite_root_system.index_set())
-
-        theta_in_ws = finite_ws.zero()
-        for root_idx, root_coeff in theta_coeffs.items():
-            i_pos = finite_indices.index(root_idx)
-            for j_pos, j_idx in enumerate(finite_indices):
-                theta_in_ws += root_coeff * C[i_pos, j_pos] * finite_Lambda[j_idx]
-
+        theta_in_ws = algebra.root_to_weight(theta_lattice, finite=True)
         return cls(algebra, theta_in_ws, level=0, grade=0)
 
     @classmethod
@@ -1134,7 +1171,7 @@ class AffineWeight:
         finite_mc = self._finite_part.monomial_coefficients()
 
         # Get marks for computing λ₀
-        marks = self._algebra.get_marks()
+        marks = self._algebra.marks
 
         # λ₀ = k - (λ, θ) = k - Σ a_i λ_i (where a_i are marks for i > 0)
         theta_dot_lambda = sum(
@@ -1148,6 +1185,39 @@ class AffineWeight:
             result[i] = finite_mc.get(i, 0)
 
         return result
+
+    def dynkin_label(self, index: int) -> Any:
+        """
+        Return the affine Dynkin label λ_i at a given node index.
+
+        Parameters
+        ----------
+        index : int
+            Dynkin node index.
+
+        Returns
+        -------
+        number
+            The Dynkin label λ_i = ̂λ(α_i^∨).
+
+        Raises
+        ------
+        KeyError
+            If ``index`` is not a valid affine Dynkin node.
+
+        Examples
+        --------
+        >>> ala = AffineLieAlgebra(['A', 2, 1])
+        >>> w = AffineWeight.affine_fundamental_weight(ala, 1)
+        >>> w.dynkin_label(1)
+        1
+        >>> w.dynkin_label(0)
+        0
+        """
+        labels = self.dynkin_labels()
+        if index not in labels:
+            raise KeyError(f"Invalid affine Dynkin node index: {index}")
+        return labels[index]
 
 
 # =============================================================================
@@ -1213,7 +1283,7 @@ def from_dynkin_labels(
         raise ValueError("Algebra must be affine type")
 
     # Compute level from labels
-    comarks = algebra.get_comarks()
+    comarks = algebra.comarks
     level = sum(comarks.get(i, 0) * labels.get(i, 0) for i in comarks.keys())
 
     # Build finite part from finite labels (use weight space for fractional support)

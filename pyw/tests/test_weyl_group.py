@@ -6,6 +6,7 @@ import pytest
 
 from sage.all import WeylGroup
 
+from pyw.core.affine_lie_algebra import AffineLieAlgebra
 from pyw.core.weyl_group import AffineWeylGroup
 
 
@@ -114,3 +115,39 @@ class TestAffineWeylGroup:
         wg = AffineWeylGroup(["A", 2, 1])
         s = str(wg)
         assert "WeylGroup" in s or "A" in s
+
+
+class TestFiniteWeylGroupAssociatedReflection:
+    def test_list_respects_requested_prefix(self):
+        ala = AffineLieAlgebra(["A", 2])
+        W = ala.finite_weyl_group()
+
+        default_elements = W.list(prefix="s")
+        custom_elements = W.list(prefix="t")
+
+        assert len(default_elements) == len(W) == 6
+        assert [tuple(w.reduced_word()) for w in default_elements] == [
+            tuple(w.reduced_word()) for w in custom_elements
+        ]
+        assert str(default_elements[0]) == "1"
+        assert str(default_elements[1]).startswith("s")
+        assert str(custom_elements[1]).startswith("t")
+
+    def test_associated_reflection_word_for_finite_root(self):
+        ala = AffineLieAlgebra(["A", 2])
+        W = ala.finite_weyl_group()
+        root = ala.positive_roots()[1]
+
+        assert W.associated_reflection_word(root) == tuple(
+            int(i) for i in root.associated_reflection()
+        )
+
+    def test_associated_reflection_element_for_finite_root(self):
+        ala = AffineLieAlgebra(["A", 2])
+        W = ala.finite_weyl_group()
+        root = ala.positive_roots()[1]
+
+        element = W.associated_reflection(root)
+
+        assert element.parent() is W._W
+        assert element.reduced_word() == list(root.associated_reflection())
