@@ -288,11 +288,12 @@ class KazhdanLusztigCharacter:
 
         return upper
 
-    def _exact_translations_by_n_shift(
+    def _translations_by_n_shift(
         self,
         weight: "AffineWeight",
         *,
         order: int,
+        max_neg_shift: Optional[Any] = None,
     ) -> List[Any]:
         semidirect = self._algebra.affine_weyl_group()
         idxs = [int(i) for i in semidirect._finite_coroot_space.index_set()]
@@ -335,8 +336,11 @@ class KazhdanLusztigCharacter:
             upper = int(ceil(-center_i + bound))
             ranges.append(range(lower, upper + 1))
 
-        max_neg_shift = QQ(order) + QQ(weight.grade)
-        if max_neg_shift < 0:
+        if max_neg_shift is None:
+            max_neg_shift_value = QQ(order) + QQ(weight.grade)
+        else:
+            max_neg_shift_value = QQ(max_neg_shift)
+        if max_neg_shift_value < 0:
             return []
 
         selected: dict[tuple[int, ...], Any] = {}
@@ -347,7 +351,7 @@ class KazhdanLusztigCharacter:
                     beta += int(coeff) * basis[i]
 
             neg_shift = self._translation_neg_shift(weight, beta)
-            if neg_shift < 0 or neg_shift > max_neg_shift:
+            if neg_shift < 0 or neg_shift > max_neg_shift_value:
                 continue
             selected[tuple(int(coeff) for coeff in coeffs)] = semidirect.translation(beta)
 
@@ -356,6 +360,14 @@ class KazhdanLusztigCharacter:
     def _translation_neg_shift(self, weight: "AffineWeight", beta: Any) -> Any:
         translated = self._algebra.affine_weyl_group().translation(beta).action(weight)
         return weight.grade - translated.grade
+
+    @staticmethod
+    def _legacy_translation_order_offset(
+        lambda_hat: "AffineWeight",
+        selected_weight: "AffineWeight",
+    ) -> int:
+        offset = QQ(selected_weight.grade) - QQ(lambda_hat.grade)
+        return max(0, int(offset))
 
     def _find_dominant_Lambda(
         self,
@@ -438,7 +450,16 @@ class KazhdanLusztigCharacter:
         semidirect = self._algebra.affine_weyl_group()
 
         if raw_translations is None and selected_bounds is None:
-            raw_translations = self._exact_translations_by_n_shift(selected_weight, order=order)
+            translation_order = order + self._legacy_translation_order_offset(
+                lambda_hat,
+                selected_weight,
+            )
+            max_neg_shift = QQ(order) + QQ(selected_weight.grade)
+            raw_translations = self._translations_by_n_shift(
+                selected_weight,
+                order=translation_order,
+                max_neg_shift=max_neg_shift,
+            )
 
         normalized_translation_vectors = semidirect._translation_vectors_from_inputs(
             translation_bounds=selected_bounds,
