@@ -1,402 +1,220 @@
-"""
-Formal Character Module for Affine Lie Algebras
-
-This module provides classes for representing and manipulating formal characters
-of modules over affine Lie algebras, including:
-
-- Truncated formal power series in q = e^{-δ}
-- Weyl-Kac denominator formula
-- Character arithmetic (addition, multiplication, scalar)
-
-The character of a module M is represented as:
-    ch(M) = Σ_{n} a_n q^n
-
-where a_n is the multiplicity (or weight space dimension) at grade n.
-
-References:
-    - Kac, V. G. "Infinite-dimensional Lie algebras" (3rd ed.), Chapter 10
-    - Di Francesco et al., "Conformal Field Theory", Chapter 14
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, Iterator, Optional, Tuple, Union
+from itertools import product
+from typing import TYPE_CHECKING, Any, Dict, Iterable, Iterator, List, Optional, Tuple
 
-from sage.all import QQ, Integer, prod
+from sage.all import Integer, QQ, RR, binomial, ceil, floor, matrix, vector
+from sage.all import ZZ
 
 if TYPE_CHECKING:
     from .affine_lie_algebra import AffineLieAlgebra
     from .affine_weight import AffineWeight
 
 
+@dataclass(frozen=True)
+class KLNumeratorTerm:
+    representative: Any
+    weight: "AffineWeight"
+    coefficient: Any
+
+
+@dataclass
+class KazhdanLusztigData:
+    algebra: Any
+    lambda_hat: "AffineWeight"
+    rho_hat: "AffineWeight"
+    Lambda_hat: "AffineWeight"
+    w_to_Lambda: Any
+    w_to_lambda: Any
+    order: int
+    translation_bounds: Optional[Dict[int, Tuple[int, int]]]
+    translations: List[Any]
+    ambient_candidates: List[Any]
+    integral_case: bool
+    weyl_lambda_candidates: List[Any]
+    stabilizer_candidates: List[Any]
+    quotient_representatives: List[Any]
+
+    def apply(self, element: Any, weight: "AffineWeight") -> "AffineWeight":
+        semidirect = self.algebra.affine_weyl_group()
+        word = tuple(int(i) for i in element.reduced_word())
+        return semidirect.from_word(word).action(weight)
+
+    def quotient_weight(self, representative: Any) -> "AffineWeight":
+        return self.apply(representative, self.Lambda_hat + self.rho_hat) - self.rho_hat
+
+    def weyl_to_be_summed(self) -> List[Any]:
+        from .bruhat import BruhatOrder
+
+        if not self.ambient_candidates:
+            return []
+        bruhat = BruhatOrder(self.ambient_candidates[0].parent())
+        lower = self.w_to_lambda
+        result = []
+        for w in self.quotient_representatives:
+            if bruhat.le(lower, w):
+                result.append(w)
+        return sorted(result, key=lambda w: (int(w.length()), tuple(int(i) for i in w.reduced_word())))
+
+
 @dataclass
 class FormalCharacter:
-    """
-    A formal character as a truncated power series in q = e^{-δ}.
-
-    The character is represented as a dictionary mapping grades (powers of q)
-    to coefficients (multiplicities or weight space contributions).
-
-    Parameters
-    ----------
-    coefficients : Dict[int, Any]
-        Mapping from grade n to coefficient a_n
-        Represents: ch = Σ a_n q^n
-    max_grade : int
-        Maximum grade computed (truncation bound)
-    algebra : AffineLieAlgebra, optional
-        The affine Lie algebra context
-
-    Examples
-    --------
-    >>> # Character 1 + 2q + 3q^2
-    >>> ch = FormalCharacter({0: 1, 1: 2, 2: 3}, max_grade=2)
-    >>> ch[0]  # Coefficient of q^0
-    1
-    >>> ch[1]  # Coefficient of q^1
-    2
-
-    Notes
-    -----
-    The grade n corresponds to the L₀ eigenvalue in the Di Francesco notation:
-    a state with affine weight (λ; k; n) contributes to the q^n term.
-    """
-
     coefficients: Dict[int, Any] = field(default_factory=dict)
     max_grade: int = 10
     algebra: Optional["AffineLieAlgebra"] = None
 
-    def __post_init__(self):
-        """Normalize coefficients."""
-        # Remove zero coefficients
+    def __post_init__(self) -> None:
         self.coefficients = {
-            n: c for n, c in self.coefficients.items() if c != 0 and n <= self.max_grade
+            grade: coeff
+            for grade, coeff in self.coefficients.items()
+            if coeff != 0 and grade <= self.max_grade
         }
 
     def __getitem__(self, grade: int) -> Any:
-        """Get coefficient at given grade."""
         return self.coefficients.get(grade, 0)
 
     def __setitem__(self, grade: int, value: Any) -> None:
-        """Set coefficient at given grade."""
         if value == 0:
             self.coefficients.pop(grade, None)
-        elif grade <= self.max_grade:
+            return
+        if grade <= self.max_grade:
             self.coefficients[grade] = value
 
     def __iter__(self) -> Iterator[Tuple[int, Any]]:
-        """Iterate over (grade, coefficient) pairs."""
-        for n in sorted(self.coefficients.keys()):
-            yield n, self.coefficients[n]
+        for grade in sorted(self.coefficients):
+            yield grade, self.coefficients[grade]
 
     def __len__(self) -> int:
-        """Number of non-zero terms."""
         return len(self.coefficients)
 
-    # =========================================================================
-    # Arithmetic Operations
-    # =========================================================================
-
     def __add__(self, other: "FormalCharacter") -> "FormalCharacter":
-        """Add two characters."""
         if not isinstance(other, FormalCharacter):
             return NotImplemented
 
         max_grade = max(self.max_grade, other.max_grade)
-        result = {}
-
-        all_grades = set(self.coefficients.keys()) | set(other.coefficients.keys())
-        for n in all_grades:
-            if n <= max_grade:
-                coeff = self[n] + other[n]
-                if coeff != 0:
-                    result[n] = coeff
-
-        return FormalCharacter(result, max_grade, self.algebra or other.algebra)
+        result: Dict[int, Any] = {}
+        for grade in set(self.coefficients) | set(other.coefficients):
+            if grade > max_grade:
+                continue
+            coeff = self[grade] + other[grade]
+            if coeff != 0:
+                result[grade] = coeff
+        return FormalCharacter(result, max_grade=max_grade, algebra=self.algebra or other.algebra)
 
     def __sub__(self, other: "FormalCharacter") -> "FormalCharacter":
-        """Subtract two characters."""
         if not isinstance(other, FormalCharacter):
             return NotImplemented
 
         max_grade = max(self.max_grade, other.max_grade)
-        result = {}
+        result: Dict[int, Any] = {}
+        for grade in set(self.coefficients) | set(other.coefficients):
+            if grade > max_grade:
+                continue
+            coeff = self[grade] - other[grade]
+            if coeff != 0:
+                result[grade] = coeff
+        return FormalCharacter(result, max_grade=max_grade, algebra=self.algebra or other.algebra)
 
-        all_grades = set(self.coefficients.keys()) | set(other.coefficients.keys())
-        for n in all_grades:
-            if n <= max_grade:
-                coeff = self[n] - other[n]
-                if coeff != 0:
-                    result[n] = coeff
-
-        return FormalCharacter(result, max_grade, self.algebra or other.algebra)
-
-    def __mul__(self, other: Union["FormalCharacter", int, Any]) -> "FormalCharacter":
-        """Multiply character by scalar or another character."""
-        if isinstance(other, (int, Integer)) or hasattr(other, "__rmul__"):
-            # Scalar multiplication
-            result = {n: c * other for n, c in self.coefficients.items() if c * other != 0}
-            return FormalCharacter(result, self.max_grade, self.algebra)
-
+    def __mul__(self, other: Any) -> "FormalCharacter":
         if isinstance(other, FormalCharacter):
-            # Character multiplication (convolution)
             max_grade = min(self.max_grade, other.max_grade)
-            result = {}
+            result: Dict[int, Any] = {}
+            for grade_1, coeff_1 in self.coefficients.items():
+                for grade_2, coeff_2 in other.coefficients.items():
+                    grade = grade_1 + grade_2
+                    if grade > max_grade:
+                        continue
+                    result[grade] = result.get(grade, 0) + coeff_1 * coeff_2
+            return FormalCharacter(
+                result, max_grade=max_grade, algebra=self.algebra or other.algebra
+            )
 
-            for n1, c1 in self.coefficients.items():
-                for n2, c2 in other.coefficients.items():
-                    n = n1 + n2
-                    if n <= max_grade:
-                        result[n] = result.get(n, 0) + c1 * c2
-
-            # Remove zeros
-            result = {n: c for n, c in result.items() if c != 0}
-            return FormalCharacter(result, max_grade, self.algebra or other.algebra)
+        if isinstance(other, (int, Integer)) or hasattr(other, "__rmul__"):
+            result = {
+                grade: coeff * other
+                for grade, coeff in self.coefficients.items()
+                if coeff * other != 0
+            }
+            return FormalCharacter(result, max_grade=self.max_grade, algebra=self.algebra)
 
         return NotImplemented
 
     def __rmul__(self, scalar: Any) -> "FormalCharacter":
-        """Right scalar multiplication."""
         return self.__mul__(scalar)
 
     def __neg__(self) -> "FormalCharacter":
-        """Negate character."""
         return self * (-1)
-
-    # =========================================================================
-    # Properties
-    # =========================================================================
 
     @property
     def leading_grade(self) -> Optional[int]:
-        """The smallest grade with non-zero coefficient."""
         if not self.coefficients:
             return None
-        return min(self.coefficients.keys())
+        return min(self.coefficients)
 
     @property
     def leading_coefficient(self) -> Any:
-        """The coefficient of the leading term."""
-        if self.leading_grade is None:
+        leading_grade = self.leading_grade
+        if leading_grade is None:
             return 0
-        return self.coefficients[self.leading_grade]
+        return self.coefficients[leading_grade]
 
     def truncate(self, new_max: int) -> "FormalCharacter":
-        """Return a truncated copy."""
-        result = {n: c for n, c in self.coefficients.items() if n <= new_max}
-        return FormalCharacter(result, new_max, self.algebra)
+        return FormalCharacter(
+            {grade: coeff for grade, coeff in self.coefficients.items() if grade <= new_max},
+            max_grade=new_max,
+            algebra=self.algebra,
+        )
 
     def shift(self, delta: int) -> "FormalCharacter":
-        """Shift all grades by delta (multiply by q^delta)."""
-        result = {n + delta: c for n, c in self.coefficients.items()}
-        return FormalCharacter(result, self.max_grade + delta, self.algebra)
-
-    # =========================================================================
-    # Representation
-    # =========================================================================
-
-    def __repr__(self) -> str:
-        if not self.coefficients:
-            return "FormalCharacter(0)"
-        terms = []
-        for n in sorted(self.coefficients.keys())[:5]:
-            c = self.coefficients[n]
-            if n == 0:
-                terms.append(str(c))
-            elif n == 1:
-                terms.append(f"{c}*q")
-            else:
-                terms.append(f"{c}*q^{n}")
-        result = " + ".join(terms)
-        if len(self.coefficients) > 5:
-            result += " + ..."
-        return f"FormalCharacter({result})"
-
-    def _repr_latex_(self) -> str:
-        """LaTeX representation for Jupyter."""
-        if not self.coefficients:
-            return "$0$"
-        terms = []
-        for n in sorted(self.coefficients.keys())[:10]:
-            c = self.coefficients[n]
-            if c == 1:
-                c_str = ""
-            elif c == -1:
-                c_str = "-"
-            else:
-                c_str = str(c)
-
-            if n == 0:
-                terms.append(str(c))
-            elif n == 1:
-                terms.append(f"{c_str}q")
-            else:
-                terms.append(f"{c_str}q^{{{n}}}")
-
-        result = " + ".join(terms).replace("+ -", "- ")
-        if len(self.coefficients) > 10:
-            result += " + \\cdots"
-        return f"${result}$"
+        shifted = {grade + delta: coeff for grade, coeff in self.coefficients.items()}
+        return FormalCharacter(shifted, max_grade=self.max_grade + delta, algebra=self.algebra)
 
     def to_dict(self) -> Dict[int, Any]:
-        """Return coefficients as a dictionary."""
         return dict(self.coefficients)
 
-    def to_list(self, up_to: Optional[int] = None) -> list:
-        """Return coefficients as a list [a_0, a_1, ..., a_n]."""
+    def to_list(self, up_to: Optional[int] = None) -> list[Any]:
         if up_to is None:
             up_to = self.max_grade
-        return [self[n] for n in range(up_to + 1)]
+        return [self[grade] for grade in range(up_to + 1)]
 
 
 class WeylKacDenominator:
-    """
-    Weyl-Kac denominator formula for affine Lie algebras.
-
-    The denominator is:
-        Π_{α > 0} (1 - e^{-α})^{mult(α)}
-
-    which by the Weyl-Kac formula equals:
-        Σ_{w ∈ W} (-1)^{ℓ(w)} e^{w(ρ̂) - ρ̂}
-
-    For character computations, we need the inverse:
-        1 / denominator = Σ_n d_n q^n
-
-    Parameters
-    ----------
-    algebra : AffineLieAlgebra
-        The affine Lie algebra
-
-    Examples
-    --------
-    >>> from pyw.core import AffineLieAlgebra
-    >>> ala = AffineLieAlgebra(['A', 2, 1])
-    >>> denom = WeylKacDenominator(ala)
-    >>> inv = denom.inverse(max_grade=5)
-    >>> inv[0]  # Leading coefficient
-    1
-
-    References
-    ----------
-    Di Francesco et al., Eq. (14.150)
-    """
-
     def __init__(self, algebra: "AffineLieAlgebra") -> None:
         self._algebra = algebra
         self._inverse_cache: Dict[int, FormalCharacter] = {}
 
     @property
     def algebra(self) -> "AffineLieAlgebra":
-        """The affine Lie algebra."""
         return self._algebra
 
     def inverse(self, max_grade: int = 10) -> FormalCharacter:
-        """
-        Compute the inverse denominator as a q-series.
+        cached = self._inverse_cache.get(max_grade)
+        if cached is not None:
+            return cached
 
-        The inverse denominator appears in character formulas:
-            ch(M(λ)) = e^λ / denominator
-
-        Parameters
-        ----------
-        max_grade : int
-            Maximum grade to compute
-
-        Returns
-        -------
-        FormalCharacter
-            The inverse denominator truncated at max_grade
-        """
-        # Check cache
-        if max_grade in self._inverse_cache:
-            return self._inverse_cache[max_grade]
-
-        # Compute using product formula
-        # 1/denominator = Π_{α > 0} (1 - q^{n_α})^{-mult(α)}
-        #               = Π_{α > 0} Σ_{k≥0} p(k) q^{k·n_α}
-        # where p(k) is the partition function contribution
-
-        result = self._compute_inverse_product(max_grade)
-        self._inverse_cache[max_grade] = result
-        return result
+        inverse = self._compute_inverse_product(max_grade)
+        self._inverse_cache[max_grade] = inverse
+        return inverse
 
     def _compute_inverse_product(self, max_grade: int) -> FormalCharacter:
-        """
-        Compute inverse denominator using the product formula.
+        rank = int(getattr(self._algebra, "rank", 1) or 1)
+        coeffs: Dict[int, Any] = {0: QQ(1)}
 
-        For affine algebras, the denominator factors as:
-            denominator = η(q)^r · (finite Weyl denominator terms)
+        for step in range(1, max_grade + 1):
+            updated: Dict[int, Any] = {}
+            for base_grade, base_coeff in coeffs.items():
+                max_power = (max_grade - base_grade) // step
+                for power in range(max_power + 1):
+                    grade = base_grade + power * step
+                    contribution = base_coeff * binomial(rank + power - 1, power)
+                    updated[grade] = updated.get(grade, 0) + contribution
+            coeffs = updated
 
-        where η(q) = q^{1/24} Π_{n≥1} (1-q^n) is the Dedekind eta function
-        and r is the rank.
-        """
-        rank = self._algebra.rank if hasattr(self._algebra, "rank") else 1
-
-        # Start with 1
-        coeffs = {0: QQ(1)}
-
-        # For each positive root contribution
-        # Simplified: use partition function approximation
-        # 1/(1-q^n) = 1 + q^n + q^{2n} + ...
-
-        for n in range(1, max_grade + 1):
-            # Contribution from imaginary roots (multiplicity = rank)
-            # 1/(1-q^n)^rank
-            new_coeffs = {}
-            for grade, coeff in coeffs.items():
-                # Add contributions from (1-q^n)^{-rank}
-                for k in range((max_grade - grade) // n + 1):
-                    new_grade = grade + k * n
-                    if new_grade <= max_grade:
-                        # Binomial coefficient for (1-x)^{-rank}
-                        binom = self._negative_binomial(rank, k)
-                        new_coeffs[new_grade] = new_coeffs.get(new_grade, 0) + coeff * binom
-
-            coeffs = new_coeffs
-
-        return FormalCharacter(coeffs, max_grade, self._algebra)
-
-    def _negative_binomial(self, r: int, k: int) -> Any:
-        """
-        Compute binomial coefficient C(-r, k) = C(r+k-1, k) * (-1)^k.
-
-        For (1-x)^{-r} = Σ_k C(r+k-1, k) x^k
-        """
-        from sage.all import binomial
-
-        return binomial(r + k - 1, k)
+        return FormalCharacter(coeffs, max_grade=max_grade, algebra=self._algebra)
 
 
 class VermaCharacter:
-    """
-    Character of a Verma module M(λ).
-
-    The Verma module character is:
-        ch(M(λ)) = e^λ / Π_{α > 0} (1 - e^{-α})^{mult(α)}
-                 = e^λ · (inverse denominator)
-
-    In q-expansion form (q = e^{-δ}):
-        ch(M(λ)) = q^{-n_λ} · Σ_k c_k q^k
-
-    where n_λ is the grade of λ.
-
-    Parameters
-    ----------
-    algebra : AffineLieAlgebra
-        The affine Lie algebra
-    weight : AffineWeight
-        The highest weight λ
-
-    Examples
-    --------
-    >>> from pyw.core import AffineLieAlgebra, AffineWeight
-    >>> ala = AffineLieAlgebra(['A', 2, 1])
-    >>> Lambda = ala.fundamental_weights()
-    >>> verma = VermaCharacter(ala, Lambda[1])
-    >>> ch = verma.character(max_grade=5)
-    """
-
     def __init__(self, algebra: "AffineLieAlgebra", weight: "AffineWeight") -> None:
         self._algebra = algebra
         self._weight = weight
@@ -404,40 +222,315 @@ class VermaCharacter:
 
     @property
     def algebra(self) -> "AffineLieAlgebra":
-        """The affine Lie algebra."""
         return self._algebra
 
     @property
     def weight(self) -> "AffineWeight":
-        """The highest weight."""
         return self._weight
 
     def character(self, max_grade: int = 10) -> FormalCharacter:
-        """
-        Compute the Verma module character.
+        weight_grade = int(getattr(self._weight, "grade", 0))
+        inverse = self._denominator.inverse(max_grade + abs(weight_grade))
+        return inverse.shift(-weight_grade).truncate(max_grade)
 
-        Parameters
-        ----------
-        max_grade : int
-            Maximum grade to compute
 
-        Returns
-        -------
-        FormalCharacter
-            The character ch(M(λ)) truncated at max_grade
-        """
-        # Get the grade (n-value) of the weight
-        weight_grade = int(self._weight.grade) if hasattr(self._weight, "grade") else 0
+class KazhdanLusztigCharacter:
+    def __init__(self, algebra: "AffineLieAlgebra") -> None:
+        from .kazhdan_lusztig import KazhdanLusztigPolynomials
 
-        # Get inverse denominator
-        inv_denom = self._denominator.inverse(max_grade + abs(weight_grade))
+        self._algebra = algebra
+        self._kl_polynomial = KazhdanLusztigPolynomials(algebra.affine_weyl_group_sage())
 
-        # Shift by weight grade: ch(M(λ)) = q^{-n_λ} · inv_denom
-        # Note: grade n corresponds to q^n, so e^λ with grade n_λ gives q^{n_λ}
-        result = inv_denom.shift(-weight_grade)
+    @property
+    def algebra(self) -> "AffineLieAlgebra":
+        return self._algebra
 
-        # Truncate to requested max_grade
-        return result.truncate(max_grade)
+    @property
+    def kl(self):
+        return self._kl_polynomial
+
+    @staticmethod
+    def _default_translation_bounds(weight: "AffineWeight", *, order: int) -> Dict[int, Tuple[int, int]]:
+        labels = weight.dynkin_labels()
+        finite_indices = [int(i) for i in labels.keys() if int(i) != 0]
+        bounds: Dict[int, Tuple[int, int]] = {}
+        for i in finite_indices:
+            label = labels.get(i, 0)
+            lower = -int(order)
+            upper = int(order + max(0, label))
+            bounds[i] = (lower, upper)
+        return bounds
+
+    @staticmethod
+    def _ceil_sqrt_qq(value: Any) -> int:
+        target = QQ(value)
+        if target <= 0:
+            return 0
+
+        lower = 0
+        upper = 1
+        while QQ(upper) * QQ(upper) < target:
+            lower = upper
+            upper *= 2
+
+        while lower + 1 < upper:
+            mid = (lower + upper) // 2
+            if QQ(mid) * QQ(mid) >= target:
+                upper = mid
+            else:
+                lower = mid
+
+        return upper
+
+    def _exact_translations_by_n_shift(
+        self,
+        weight: "AffineWeight",
+        *,
+        order: int,
+    ) -> List[Any]:
+        semidirect = self._algebra.affine_weyl_group()
+        idxs = [int(i) for i in semidirect._finite_coroot_space.index_set()]
+
+        if QQ(weight.level) <= 0:
+            raise ValueError(
+                "Exact translation selection requires positive level for Lambda_hat + rho_hat; "
+                "pass translation_bounds explicitly to use a manual bounded search"
+            )
+
+        basis = semidirect._finite_coroot_space.simple_roots()
+        labels = weight.dynkin_labels()
+        linear = vector(QQ, [QQ(labels.get(i, 0)) for i in idxs])
+        gram = matrix(
+            QQ,
+            len(idxs),
+            len(idxs),
+            lambda r, c: QQ(basis[idxs[r]].to_ambient().inner_product(basis[idxs[c]].to_ambient())),
+        )
+        quadratic = (QQ(weight.level) / 2) * gram
+
+        if not quadratic.is_positive_definite():
+            raise ValueError(
+                "Exact translation selection requires a positive-definite quadratic form; "
+                "pass translation_bounds explicitly to use a manual bounded search"
+            )
+
+        inverse = quadratic.inverse()
+        center = inverse * linear / 2
+        radius_sq = QQ(order) + (center.dot_product(quadratic * center))
+
+        if radius_sq < 0:
+            return []
+
+        ranges: list[range] = []
+        for i, center_i in enumerate(center):
+            projection_sq = radius_sq * inverse[i, i]
+            bound = QQ(self._ceil_sqrt_qq(projection_sq))
+            lower = int(floor(-center_i - bound))
+            upper = int(ceil(-center_i + bound))
+            ranges.append(range(lower, upper + 1))
+
+        max_neg_shift = QQ(order) + QQ(weight.grade)
+        if max_neg_shift < 0:
+            return []
+
+        selected: dict[tuple[int, ...], Any] = {}
+        for coeffs in product(*ranges):
+            beta = semidirect._zero_beta
+            for i, coeff in zip(idxs, coeffs):
+                if coeff:
+                    beta += int(coeff) * basis[i]
+
+            neg_shift = self._translation_neg_shift(weight, beta)
+            if neg_shift < 0 or neg_shift > max_neg_shift:
+                continue
+            selected[tuple(int(coeff) for coeff in coeffs)] = semidirect.translation(beta)
+
+        return [selected[key] for key in sorted(selected.keys())]
+
+    def _translation_neg_shift(self, weight: "AffineWeight", beta: Any) -> Any:
+        translated = self._algebra.affine_weyl_group().translation(beta).action(weight)
+        return weight.grade - translated.grade
+
+    def _find_dominant_Lambda(
+        self,
+        lambda_hat: "AffineWeight",
+        *,
+        max_steps: int = 1000,
+    ) -> Tuple["AffineWeight", Any]:
+        rho_hat = self.algebra.affine_rho()
+        weyl_group = self.kl.weyl_group
+        current = lambda_hat + rho_hat
+        current_w = weyl_group.one()
+        visited: set[tuple[tuple[int, Any], ...]] = set()
+
+        for _ in range(max_steps):
+            labels = current.dynkin_labels()
+            negative_nodes = [int(i) for i, value in labels.items() if value < 0]
+            if not negative_nodes:
+                return current - rho_hat, current_w
+
+            state = tuple(sorted((int(i), labels[i]) for i in labels.keys())) + ((-1, current.grade),)
+            if state in visited:
+                break
+            visited.add(state)
+
+            node = min(negative_nodes)
+            current = current.simple_reflection(node)
+            current_w = weyl_group.simple_reflection(node) * current_w
+
+        raise ValueError("Failed to find dominant Lambda via affine simple reflections")
+
+    @staticmethod
+    def _is_integral_affine_weight(weight: "AffineWeight") -> bool:
+        labels = weight.dynkin_labels()
+        return all(value in ZZ for value in labels.values())
+
+    @staticmethod
+    def _apply_element_to_weight(
+        algebra: "AffineLieAlgebra", element: Any, weight: "AffineWeight"
+    ) -> "AffineWeight":
+        semidirect = algebra.affine_weyl_group()
+        word = tuple(int(i) for i in element.reduced_word())
+        return semidirect.from_word(word).action(weight)
+
+    @classmethod
+    def _collect_quotient_representatives(
+        cls,
+        algebra: "AffineLieAlgebra",
+        Lambda_hat: "AffineWeight",
+        *,
+        rho_hat: "AffineWeight",
+        candidates: Iterable[Any],
+    ) -> List[Any]:
+        by_weight: Dict[Tuple[Tuple[int, Any], ...], Any] = {}
+        for w in candidates:
+            image = cls._apply_element_to_weight(algebra, w, Lambda_hat + rho_hat) - rho_hat
+            key = tuple(sorted(image.dynkin_labels().items())) + ((-1, image.grade),)
+            current = by_weight.get(key)
+            if current is None or int(w.length()) < int(current.length()):
+                by_weight[key] = w
+        return sorted(by_weight.values(), key=lambda w: (int(w.length()), tuple(int(i) for i in w.reduced_word())))
+
+    def build_context(
+        self,
+        lambda_hat: "AffineWeight",
+        *,
+        order: int,
+        translation_bounds: Optional[Dict[int, Tuple[int, int]]] = None,
+        translations: Optional[Iterable[Any]] = None,
+    ) -> KazhdanLusztigData:
+        rho_hat = self._algebra.affine_rho()
+        Lambda_hat, w_to_Lambda = self._find_dominant_Lambda(lambda_hat)
+        w_to_lambda = w_to_Lambda.inverse()
+
+        if translation_bounds is not None and translations is not None:
+            raise ValueError("Provide either translation_bounds or translations, not both")
+
+        selected_weight = Lambda_hat + rho_hat
+        selected_bounds = dict(translation_bounds) if translation_bounds is not None else None
+        raw_translations = list(translations) if translations is not None else None
+        semidirect = self._algebra.affine_weyl_group()
+
+        if raw_translations is None and selected_bounds is None:
+            raw_translations = self._exact_translations_by_n_shift(selected_weight, order=order)
+
+        normalized_translation_vectors = semidirect._translation_vectors_from_inputs(
+            translation_bounds=selected_bounds,
+            translations=raw_translations,
+        )
+        normalized_translations = [semidirect.translation(beta) for beta in normalized_translation_vectors]
+
+        ambient_candidates = self._kl_polynomial.affine_bounded_elements(
+            self._algebra,
+            translations=normalized_translations,
+            factor_order="st",
+        )
+        integral_case = self._is_integral_affine_weight(Lambda_hat)
+        weyl_lambda_candidates = list(ambient_candidates)
+        stabilizer_candidates = self._kl_polynomial.affine_stabilizer(
+            Lambda_hat.to_sagemath(),
+            rho_hat=rho_hat.to_sagemath(),
+            candidates=ambient_candidates,
+            algebra=self._algebra,
+        )
+        quotient_representatives = self._collect_quotient_representatives(
+            self._algebra,
+            Lambda_hat,
+            rho_hat=rho_hat,
+            candidates=weyl_lambda_candidates,
+        )
+
+        return KazhdanLusztigData(
+            algebra=self._algebra,
+            lambda_hat=lambda_hat,
+            rho_hat=rho_hat,
+            Lambda_hat=Lambda_hat,
+            w_to_Lambda=w_to_Lambda,
+            w_to_lambda=w_to_lambda,
+            order=order,
+            translation_bounds=selected_bounds,
+            translations=list(normalized_translations),
+            ambient_candidates=ambient_candidates,
+            integral_case=integral_case,
+            weyl_lambda_candidates=weyl_lambda_candidates,
+            stabilizer_candidates=stabilizer_candidates,
+            quotient_representatives=quotient_representatives,
+        )
+
+    def numerator_terms(
+        self,
+        lambda_hat: "AffineWeight",
+        *,
+        order: int,
+        translation_bounds: Optional[Dict[int, Tuple[int, int]]] = None,
+        translations: Optional[Iterable[Any]] = None,
+    ) -> list[Any]:
+        context = self.build_context(
+            lambda_hat,
+            order=order,
+            translation_bounds=translation_bounds,
+            translations=translations,
+        )
+        terms: list[KLNumeratorTerm] = []
+        lower = context.w_to_lambda
+        for representative in context.weyl_to_be_summed():
+            coefficient = self._kl_polynomial.affine_bounded_parabolic_Q_tilde(
+                lower,
+                representative,
+                candidates=context.ambient_candidates,
+                stabilizer_candidates=context.stabilizer_candidates,
+                at_one=True,
+            )
+            if coefficient == 0:
+                continue
+            weight = context.quotient_weight(representative)
+            terms.append(
+                KLNumeratorTerm(
+                    representative=representative,
+                    weight=weight,
+                    coefficient=coefficient,
+                )
+            )
+        return terms
+
+    def character(
+        self,
+        lambda_hat: "AffineWeight",
+        *,
+        order: int,
+        translation_bounds: Optional[Dict[int, Tuple[int, int]]] = None,
+        translations: Optional[Iterable[Any]] = None,
+    ) -> FormalCharacter:
+        result = FormalCharacter({}, max_grade=order, algebra=self._algebra)
+        for term in self.numerator_terms(
+            lambda_hat,
+            order=order,
+            translation_bounds=translation_bounds,
+            translations=translations,
+        ):
+            verma = VermaCharacter(self._algebra, term.weight)
+            result = result + term.coefficient * verma.character(max_grade=order)
+        return result.truncate(order)
 
 
 def character_from_weight(
@@ -445,22 +538,4 @@ def character_from_weight(
     weight: "AffineWeight",
     max_grade: int = 10,
 ) -> FormalCharacter:
-    """
-    Convenience function to compute Verma character.
-
-    Parameters
-    ----------
-    algebra : AffineLieAlgebra
-        The affine Lie algebra
-    weight : AffineWeight
-        The highest weight
-    max_grade : int
-        Maximum grade
-
-    Returns
-    -------
-    FormalCharacter
-        The Verma module character
-    """
-    verma = VermaCharacter(algebra, weight)
-    return verma.character(max_grade)
+    return VermaCharacter(algebra, weight).character(max_grade)
