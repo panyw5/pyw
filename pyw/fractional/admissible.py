@@ -193,7 +193,7 @@ class AdmissibleWeight:
         mc = aw.finite_part.monomial_coefficients()
 
         # Compute λ₀ = k - Σ aᵢ λᵢ (comarks * finite Dynkin labels)
-        comarks = aw.algebra.get_comarks()
+        comarks = aw.algebra.comarks
         finite_index_set = aw.algebra._finite_root_system.weight_space().index_set()
         finite_sum = sum(
             QQ(comarks.get(i, 0)) * QQ(mc.get(i, 0)) for i in finite_index_set

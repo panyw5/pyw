@@ -1735,6 +1735,7 @@ class AffineLieAlgebra:
 
         return AffineWeight.delta(self)
 
+    # NOTE: 改名为 .rho_hat
     def affine_rho(self):
         """
         Get the affine Weyl vector ρ̂ = (ρ; g; 0) in Di Francesco notation.
@@ -1756,6 +1757,7 @@ class AffineLieAlgebra:
 
         return AffineWeight.rho_hat(self)
 
+    # NOTE: 改名为 theta_hat
     def affine_theta(self):
         """
         Get the affine highest root θ̂ = (θ; 0; 0) in Di Francesco notation.

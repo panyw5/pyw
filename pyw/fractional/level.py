@@ -91,10 +91,10 @@ class FractionalLevel:
             self._h_vee = Integer(ct.coxeter_number())
         else:
             # Use a lookup table for common types
-            self._h_vee = self._get_dual_coxeter_number_fallback()
+            self._h_vee = self.lookup_dual_coxeter_number()
 
         # Get lacety
-        self._lacety = self._get_lacety()
+        self._lacety = self.compute_lacety()
 
         # Check that p and u are positive
         if self.p <= 0:
@@ -114,7 +114,7 @@ class FractionalLevel:
         if self.p < self._h_vee:
             raise ValueError(f"p={self.p} must be >= h^∨={self._h_vee}")
 
-    def _get_lacety(self) -> int:
+    def compute_lacety(self) -> int:
         """
         Determine the lacety ℓ based on the Cartan type.
 
@@ -140,7 +140,7 @@ class FractionalLevel:
         else:
             raise ValueError(f"Unknown Cartan type: {ct}. Expected A, B, C, D, E, F, or G")
 
-    def _get_dual_coxeter_number_fallback(self) -> Integer:
+    def lookup_dual_coxeter_number(self) -> Integer:
         """
         Fallback method to get dual Coxeter number using a lookup table.
 
@@ -303,6 +303,6 @@ class FractionalLevel:
         return f"k = {self.level} (h^∨={self.h_vee}, p={self.p}, u={self.u})"
 
 
-def python_int(sage_int: Integer) -> int:
+def to_python_int(sage_int: Integer) -> int:
     """Convert a SageMath Integer to a Python int."""
     return int(sage_int)

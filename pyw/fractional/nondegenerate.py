@@ -111,9 +111,11 @@ class NondegenerateChecker:
             True
         """
         # Check against all simple coroots
-        return self.check_specific_coroots(weight, list(self._simple_coroots.values()))
+        return self.has_nondegenerate_pairings_on_coroots(
+            weight, list(self._simple_coroots.values())
+        )
 
-    def check_specific_coroots(self, weight, coroots: List) -> bool:
+    def has_nondegenerate_pairings_on_coroots(self, weight, coroots: List) -> bool:
         """
         Check nondegeneracy against a specific list of coroots.
 
@@ -131,13 +133,13 @@ class NondegenerateChecker:
             >>> W = checker._weight_lattice
             >>> weight = W.gen(0) / 2
             >>> coroots = [checker._coroot_lattice.simple_roots()[0]]
-            >>> checker.check_specific_coroots(weight, coroots)
+            >>> checker.has_nondegenerate_pairings_on_coroots(weight, coroots)
             True
         """
         try:
             for coroot in coroots:
                 # Compute the pairing (λ|α) using the natural pairing
-                pairing = self._compute_pairing(weight, coroot)
+                pairing = self.compute_weight_coroot_pairing(weight, coroot)
 
                 # Check if the pairing is an integer
                 if self._is_integer(pairing):
@@ -147,7 +149,7 @@ class NondegenerateChecker:
         except (AttributeError, TypeError) as e:
             raise ValueError(f"Invalid weight or coroot type: {e}") from e
 
-    def _compute_pairing(self, weight, coroot) -> Union[Integer, float]:
+    def compute_weight_coroot_pairing(self, weight, coroot) -> Union[Integer, float]:
         """
         Compute the natural pairing (λ|α) between a weight and a coroot.
 
@@ -229,13 +231,13 @@ class NondegenerateChecker:
         simple_coroots = self._simple_coroots
 
         for idx, coroot in simple_coroots.items():
-            pairing = self._compute_pairing(weight, coroot)
+            pairing = self.compute_weight_coroot_pairing(weight, coroot)
             if self._is_integer(pairing):
                 failing.append((idx, coroot, pairing))
 
         return failing
 
-    def is_integer_pairing(self, weight, coroot) -> bool:
+    def has_integral_pairing(self, weight, coroot) -> bool:
         """
         Check if the pairing (λ|α) is an integer.
 
@@ -248,7 +250,7 @@ class NondegenerateChecker:
         Returns:
             True if (weight|coroot) ∈ ℤ, False otherwise
         """
-        pairing = self._compute_pairing(weight, coroot)
+        pairing = self.compute_weight_coroot_pairing(weight, coroot)
         return self._is_integer(pairing)
 
     @property

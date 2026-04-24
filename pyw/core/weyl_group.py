@@ -418,7 +418,7 @@ class FiniteWeylGroup:
         return tuple(int(i) for i in root.associated_reflection())
 
     def associated_reflection(self, root: Any) -> Any:
-        return self.from_word(self.associated_reflection_word(root))
+        return self._W.from_reduced_word(list(self.associated_reflection_word(root)))
 
 
 class AffineWeylGroupSemidirect:
@@ -1187,7 +1187,10 @@ class ExtendedAffineWeylGroup:
         return tuple(int(i) for i in root_rl.associated_reflection())
 
     def associated_reflection(self, root: Any) -> "ExtendedAffineWeylGroupElement":
-        return self.from_word(self.associated_reflection_word(root))
+        element = self.identity()
+        for i in self.associated_reflection_word(root):
+            element = element * self.simple_reflection(int(i))
+        return element
 
     def simple_reflection(self, i: int) -> "ExtendedAffineWeylGroupElement":
         if i == 0:

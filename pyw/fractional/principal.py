@@ -85,7 +85,7 @@ class PrincipalAdmissibleWeight:
     >>>
     >>> # Construct principal admissible weight set
     >>> paw = PrincipalAdmissibleWeight(level, y)
-    >>> principal_set = paw.construct_set()
+    >>> principal_set = paw.construct_principal_weights()
     >>> print(f"Principal admissible weights: {len(principal_set)} elements")
     >>>
     >>> # Create a test weight
@@ -163,7 +163,7 @@ class PrincipalAdmissibleWeight:
         # Get affine Weyl vector ρ̂ = Σ Λ_i (sum of all fundamental weights)
         self.rho_hat = self.weight_space.rho()
 
-    def construct_set(self, max_fundamental_coeff: int = 5) -> List[Any]:
+    def construct_principal_weights(self, max_fundamental_coeff: int = 5) -> List[Any]:
         """
         Construct the set P̂_{u,y}^k of principal admissible weights.
 
@@ -198,7 +198,7 @@ class PrincipalAdmissibleWeight:
         >>> paw = PrincipalAdmissibleWeight(level, y)
         >>>
         >>> # Construct set with small bound for demonstration
-        >>> principal_set = paw.construct_set(max_fundamental_coeff=2)
+        >>> principal_set = paw.construct_principal_weights(max_fundamental_coeff=2)
         >>> print(f"Found {len(principal_set)} principal admissible weights")
 
         Notes
@@ -215,7 +215,7 @@ class PrincipalAdmissibleWeight:
         lambda_level = self.p - self.h_vee
 
         # Compute the coefficient for the null direction: (k + h^∨ - p) = p/u - p
-        null_coeff = Fraction(python_int(self.p), python_int(self.u)) - python_int(self.p)
+        null_coeff = Fraction(to_python_int(self.p), to_python_int(self.u)) - to_python_int(self.p)
 
         # Generate dominant integral weights of level p - h^∨
         # This is a bounded subset of the infinite set
@@ -230,7 +230,7 @@ class PrincipalAdmissibleWeight:
             weight_with_null = lambda_weight + null_coeff * self.fundamental_weights[0]
 
             # Apply dot action: y.weight = y(weight + ρ̂) - ρ̂
-            principal_weight = self.apply_dot_action(weight_with_null)
+            principal_weight = self.apply_y_dot_action(weight_with_null)
 
             principal_weights.append(principal_weight)
 
@@ -298,7 +298,7 @@ class PrincipalAdmissibleWeight:
 
         return dominant_weights
 
-    def apply_dot_action(self, weight: Any) -> Any:
+    def apply_y_dot_action(self, weight: Any) -> Any:
         """
         Apply the dot action of y to a weight.
 
@@ -335,7 +335,7 @@ class PrincipalAdmissibleWeight:
         >>> Lambda = P.fundamental_weights()
         >>> test_weight = Lambda[0]
         >>>
-        >>> result = paw.apply_dot_action(test_weight)
+        >>> result = paw.apply_y_dot_action(test_weight)
         >>> print(f"y.{test_weight} = {result}")
 
         Notes
@@ -393,7 +393,7 @@ class PrincipalAdmissibleWeight:
         >>> Lambda = P.fundamental_weights()
         >>>
         >>> # Check a weight from the set
-        >>> test_weight = paw.apply_dot_action(Lambda[0])
+        >>> test_weight = paw.apply_y_dot_action(Lambda[0])
         >>> is_admissible = paw.is_principal_admissible(test_weight)
         >>> print(f"Is principal admissible: {is_admissible}")
 
@@ -414,7 +414,7 @@ class PrincipalAdmissibleWeight:
         lambda_candidate = y_inv_shifted - self.rho_hat
 
         # Compute the coefficient for the null direction: (k + h^∨ - p) = p/u - p
-        null_coeff = Fraction(python_int(self.p), python_int(self.u)) - python_int(self.p)
+        null_coeff = Fraction(to_python_int(self.p), to_python_int(self.u)) - to_python_int(self.p)
 
         # Remove null component: λ' = λ - (k + h^∨ - p)D
         # This should give a dominant integral weight of level p - h^∨
@@ -433,7 +433,7 @@ class PrincipalAdmissibleWeight:
                 coefficients.append(coef_i)
 
             # Check if all coefficients are non-negative integers
-            lambda_level = python_int(self.p) - python_int(self.h_vee)
+            lambda_level = to_python_int(self.p) - to_python_int(self.h_vee)
             sum_coeff = sum(coef_i for coef_i in coefficients)
 
             # Verify conditions:
@@ -475,7 +475,7 @@ class PrincipalAdmissibleWeight:
         )
 
 
-def python_int(sage_int: Integer) -> int:
+def to_python_int(sage_int: Integer) -> int:
     """
     Convert a SageMath Integer to a Python int.
 

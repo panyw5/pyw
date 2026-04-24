@@ -187,12 +187,8 @@ class FormalCharacter:
 
 class WeylKacDenominator:
     def __init__(self, algebra: "AffineLieAlgebra") -> None:
-        self._algebra = algebra
+        self.algebra = algebra
         self._inverse_cache: Dict[int, FormalCharacter] = {}
-
-    @property
-    def algebra(self) -> "AffineLieAlgebra":
-        return self._algebra
 
     def inverse(self, max_grade: int = 10) -> FormalCharacter:
         cached = self._inverse_cache.get(max_grade)
@@ -204,7 +200,7 @@ class WeylKacDenominator:
         return inverse
 
     def _compute_inverse_product(self, max_grade: int) -> FormalCharacter:
-        rank = int(getattr(self._algebra, "rank", 1) or 1)
+        rank = int(getattr(self.algebra, "rank", 1) or 1)
         coeffs: Dict[int, Any] = {0: QQ(1)}
 
         for step in range(1, max_grade + 1):
@@ -217,25 +213,17 @@ class WeylKacDenominator:
                     updated[grade] = updated.get(grade, 0) + contribution
             coeffs = updated
 
-        return FormalCharacter(coeffs, max_grade=max_grade, algebra=self._algebra)
+        return FormalCharacter(coeffs, max_grade=max_grade, algebra=self.algebra)
 
 
 class VermaCharacter:
     def __init__(self, algebra: "AffineLieAlgebra", weight: "AffineWeight") -> None:
-        self._algebra = algebra
-        self._weight = weight
+        self.algebra = algebra
+        self.weight = weight
         self._denominator = WeylKacDenominator(algebra)
 
-    @property
-    def algebra(self) -> "AffineLieAlgebra":
-        return self._algebra
-
-    @property
-    def weight(self) -> "AffineWeight":
-        return self._weight
-
     def character(self, max_grade: int = 10) -> FormalCharacter:
-        weight_grade = int(getattr(self._weight, "grade", 0))
+        weight_grade = int(getattr(self.weight, "grade", 0))
         inverse = self._denominator.inverse(max_grade + abs(weight_grade))
         return inverse.shift(-weight_grade).truncate(max_grade)
 
@@ -244,16 +232,8 @@ class KazhdanLusztigCharacter:
     def __init__(self, algebra: "AffineLieAlgebra") -> None:
         from .kazhdan_lusztig import KazhdanLusztigPolynomials
 
-        self._algebra = algebra
-        self._kl_polynomial = KazhdanLusztigPolynomials(algebra.affine_weyl_group_sage())
-
-    @property
-    def algebra(self) -> "AffineLieAlgebra":
-        return self._algebra
-
-    @property
-    def kl(self):
-        return self._kl_polynomial
+        self.algebra = algebra
+        self.kl = KazhdanLusztigPolynomials(algebra.affine_weyl_group_sage())
 
     @staticmethod
     def _default_translation_bounds(weight: "AffineWeight", *, order: int) -> Dict[int, Tuple[int, int]]:
@@ -295,7 +275,7 @@ class KazhdanLusztigCharacter:
         order: int,
         max_neg_shift: Optional[Any] = None,
     ) -> List[Any]:
-        semidirect = self._algebra.affine_weyl_group()
+        semidirect = self.algebra.affine_weyl_group()
         idxs = [int(i) for i in semidirect._finite_coroot_space.index_set()]
 
         if QQ(weight.level) <= 0:
@@ -358,9 +338,10 @@ class KazhdanLusztigCharacter:
         return [selected[key] for key in sorted(selected.keys())]
 
     def _translation_neg_shift(self, weight: "AffineWeight", beta: Any) -> Any:
-        translated = self._algebra.affine_weyl_group().translation(beta).action(weight)
+        translated = self.algebra.affine_weyl_group().translation(beta).action(weight)
         return weight.grade - translated.grade
 
+    # NOTE: 这个函数完全没有必要，就是计算一个差值。
     @staticmethod
     def _legacy_translation_order_offset(
         lambda_hat: "AffineWeight",
@@ -429,6 +410,7 @@ class KazhdanLusztigCharacter:
                 by_weight[key] = w
         return sorted(by_weight.values(), key=lambda w: (int(w.length()), tuple(_element_word_list(w))))
 
+    # NOTE: 移除 translation_bounds argument，KL 计算不用这个通道
     def build_context(
         self,
         lambda_hat: "AffineWeight",
@@ -437,7 +419,7 @@ class KazhdanLusztigCharacter:
         translation_bounds: Optional[Dict[int, Tuple[int, int]]] = None,
         translations: Optional[Iterable[Any]] = None,
     ) -> KazhdanLusztigData:
-        rho_hat = self._algebra.affine_rho()
+        rho_hat = self.algebra.affine_rho()
         Lambda_hat, w_to_Lambda = self._find_dominant_Lambda(lambda_hat)
         w_to_lambda = w_to_Lambda.inverse()
 
@@ -445,17 +427,18 @@ class KazhdanLusztigCharacter:
             raise ValueError("Provide either translation_bounds or translations, not both")
 
         selected_weight = Lambda_hat + rho_hat
+        # NOTE: translation_bounds 不需要了，selected_bounds 也不用了
         selected_bounds = dict(translation_bounds) if translation_bounds is not None else None
-        raw_translations = list(translations) if translations is not None else None
-        semidirect = self._algebra.affine_weyl_group()
+        translations = list(translations) if translations is not None else None
+        semidirect = self.algebra.affine_weyl_group()
 
-        if raw_translations is None and selected_bounds is None:
+        if translations is None and selected_bounds is None:
             translation_order = order + self._legacy_translation_order_offset(
                 lambda_hat,
                 selected_weight,
             )
             max_neg_shift = QQ(order) + QQ(selected_weight.grade)
-            raw_translations = self._translations_by_n_shift(
+            translations = self._translations_by_n_shift(
                 selected_weight,
                 order=translation_order,
                 max_neg_shift=max_neg_shift,
@@ -463,32 +446,32 @@ class KazhdanLusztigCharacter:
 
         normalized_translation_vectors = semidirect._translation_vectors_from_inputs(
             translation_bounds=selected_bounds,
-            translations=raw_translations,
+            translations=translations,
         )
         normalized_translations = [semidirect.translation(beta) for beta in normalized_translation_vectors]
 
-        ambient_candidates = self._kl_polynomial.affine_bounded_elements(
-            self._algebra,
+        ambient_candidates = self.kl.affine_bounded_elements(
+            self.algebra,
             translations=normalized_translations,
             factor_order="st",
         )
         integral_case = self._is_integral_affine_weight(Lambda_hat)
         weyl_lambda_candidates = list(ambient_candidates)
-        stabilizer_candidates = self._kl_polynomial.affine_stabilizer(
+        stabilizer_candidates = self.kl.affine_stabilizer(
             Lambda_hat.to_sagemath(),
             rho_hat=rho_hat.to_sagemath(),
             candidates=ambient_candidates,
-            algebra=self._algebra,
+            algebra=self.algebra,
         )
         quotient_representatives = self._collect_quotient_representatives(
-            self._algebra,
+            self.algebra,
             Lambda_hat,
             rho_hat=rho_hat,
             candidates=weyl_lambda_candidates,
         )
 
         return KazhdanLusztigData(
-            algebra=self._algebra,
+            algebra=self.algebra,
             lambda_hat=lambda_hat,
             rho_hat=rho_hat,
             Lambda_hat=Lambda_hat,
@@ -521,7 +504,7 @@ class KazhdanLusztigCharacter:
         terms: list[KLNumeratorTerm] = []
         lower = context.w_to_lambda
         for representative in context.weyl_to_be_summed():
-            coefficient = self._kl_polynomial.affine_bounded_parabolic_Q_tilde(
+            coefficient = self.kl.affine_bounded_parabolic_Q_tilde(
                 lower,
                 representative,
                 candidates=context.ambient_candidates,
@@ -548,14 +531,14 @@ class KazhdanLusztigCharacter:
         translation_bounds: Optional[Dict[int, Tuple[int, int]]] = None,
         translations: Optional[Iterable[Any]] = None,
     ) -> FormalCharacter:
-        result = FormalCharacter({}, max_grade=order, algebra=self._algebra)
+        result = FormalCharacter({}, max_grade=order, algebra=self.algebra)
         for term in self.numerator_terms(
             lambda_hat,
             order=order,
             translation_bounds=translation_bounds,
             translations=translations,
         ):
-            verma = VermaCharacter(self._algebra, term.weight)
+            verma = VermaCharacter(self.algebra, term.weight)
             result = result + term.coefficient * verma.character(max_grade=order)
         return result.truncate(order)
 

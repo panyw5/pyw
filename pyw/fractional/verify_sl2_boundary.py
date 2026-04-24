@@ -49,7 +49,7 @@ def latex_weight(a0: Fraction, a1: Fraction) -> str:
     return " + ".join(parts).replace("+ -", "- ")
 
 
-def compute_sl2_admissible_weights() -> None:
+def print_sl2_admissible_weight_verification():
     """Compute and verify sl(2) principal admissible weights at k = -4/3."""
     print("=" * 70)
     print("sl(2) Principal Admissible Weights at k = -4/3")
@@ -140,7 +140,7 @@ def compute_sl2_admissible_weights() -> None:
     return weights
 
 
-def compute_conformal_dimensions() -> None:
+def print_sl2_conformal_dimension_verification():
     """Compute conformal dimensions for the admissible weights."""
     print("\n" + "=" * 70)
     print("Conformal Dimensions")
@@ -196,8 +196,8 @@ def compute_conformal_dimensions() -> None:
 
 def main():
     """Main verification function."""
-    weights = compute_sl2_admissible_weights()
-    dimensions = compute_conformal_dimensions()
+    weights = print_sl2_admissible_weight_verification()
+    dimensions = print_sl2_conformal_dimension_verification()
 
     print("\n" + "=" * 70)
     print("FINAL ANSWER")

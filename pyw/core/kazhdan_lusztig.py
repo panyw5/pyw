@@ -93,8 +93,8 @@ class KazhdanLusztigPolynomials:
         cache_dir : Path, optional
             Directory for caching (default: ~/.pyw/kl_cache)
         """
-        self._W = coxeter_group
-        self._cartan_type = coxeter_group.cartan_type()
+        self.weyl_group = coxeter_group
+        self.cartan_type = coxeter_group.cartan_type()
 
         # Setup caching
         if cache_dir is None:
@@ -125,7 +125,7 @@ class KazhdanLusztigPolynomials:
             # Use polynomial ring instead of symbolic variable to avoid subs() issues
             R = PolynomialRing(QQ, "q")
             q = R.gen()
-            self._sage_kl = KazhdanLusztigPolynomial(self._W, q)
+            self._sage_kl = KazhdanLusztigPolynomial(self.weyl_group, q)
             self._q = q  # Store for substitution
         except ImportError:
             pass
@@ -135,7 +135,7 @@ class KazhdanLusztigPolynomials:
             from coxeter3_sage import Coxeter3
 
             command = self._discover_coxeter_command()
-            self._coxeter3 = Coxeter3(self._W, self._q, command=command)
+            self._coxeter3 = Coxeter3(self.weyl_group, self._q, command=command)
         except (ImportError, Exception):
             # coxeter3 not available or type not supported
             pass
@@ -155,16 +155,6 @@ class KazhdanLusztigPolynomials:
                 return candidate
 
         return "coxeter"
-
-    @property
-    def weyl_group(self) -> Any:
-        """The underlying Weyl/Coxeter group."""
-        return self._W
-
-    @property
-    def cartan_type(self) -> Any:
-        """The Cartan type."""
-        return self._cartan_type
 
     # =========================================================================
     # Standard KL Polynomials P_{x,y}(q)
@@ -341,7 +331,7 @@ class KazhdanLusztigPolynomials:
     def _compute_inverse_kl_by_matrix_inversion(self, x: Any, y: Any, at_one: bool) -> Any:
         from .bruhat import BruhatOrder
 
-        bruhat = BruhatOrder(self._W)
+        bruhat = BruhatOrder(self.weyl_group)
 
         if not bruhat.le(x, y):
             return 0
@@ -409,7 +399,7 @@ class KazhdanLusztigPolynomials:
         """
         from .bruhat import BruhatOrder
 
-        bruhat = BruhatOrder(self._W)
+        bruhat = BruhatOrder(self.weyl_group)
         parabolic = coset_x._parabolic
 
         if parabolic != coset_y._parabolic:
@@ -418,7 +408,7 @@ class KazhdanLusztigPolynomials:
             raise ValueError("Coset inputs must use the same left/right convention")
         if coset_x._left:
             raise NotImplementedError("parabolic_Q_tilde currently supports right cosets only")
-        if not self._W.is_finite():
+        if not self.weyl_group.is_finite():
             raise ValueError("parabolic_Q_tilde currently supports finite groups only")
 
         # Get minimal representatives
@@ -450,7 +440,7 @@ class KazhdanLusztigPolynomials:
         translations: Iterable[Any] | None = None,
         factor_order: str = "st",
     ) -> List[Any]:
-        r"""Enumerate a bounded affine subset and coerce it into ``self._W``.
+        r"""Enumerate a bounded affine subset and coerce it into ``self.weyl_group``.
 
         The old reference implementation built finite pieces and translations by
         hand. In ``pyw`` we reuse ``AffineWeylGroupSemidirect`` to enumerate a
@@ -471,7 +461,7 @@ class KazhdanLusztigPolynomials:
             if word in seen:
                 continue
             seen.add(word)
-            result.append(self._W.from_reduced_word(word))
+            result.append(self.weyl_group.from_reduced_word(word))
 
         return sorted(result, key=lambda w: (int(w.length()), tuple(w.reduced_word())))
 
@@ -485,7 +475,7 @@ class KazhdanLusztigPolynomials:
         """Bruhat interval restricted to an explicit bounded affine candidate set."""
         from .bruhat import BruhatOrder
 
-        bruhat = BruhatOrder(self._W)
+        bruhat = BruhatOrder(self.weyl_group)
         coerced = [self._ensure_element(w) for w in candidates]
         return bruhat.interval_from_candidates(self._ensure_element(x), self._ensure_element(y), coerced)
 
@@ -506,7 +496,7 @@ class KazhdanLusztigPolynomials:
         """
         from .bruhat import BruhatOrder
 
-        bruhat = BruhatOrder(self._W)
+        bruhat = BruhatOrder(self.weyl_group)
         x = self._ensure_element(x)
         y = self._ensure_element(y)
 
@@ -588,17 +578,17 @@ class KazhdanLusztigPolynomials:
                 if stabilized - rho_hat_affine == Lambda_affine:
                     if hasattr(w, "reduced_word"):
                         affine_word = w.word() if hasattr(w, "word") else tuple(int(i) for i in w.reduced_word())
-                        result.append(self._W.from_reduced_word(affine_word))
+                        result.append(self.weyl_group.from_reduced_word(affine_word))
                     else:
                         affine_word = element.word() if hasattr(element, "word") else tuple(int(i) for i in element.reduced_word())
-                        result.append(self._W.from_reduced_word(affine_word))
+                        result.append(self.weyl_group.from_reduced_word(affine_word))
                 continue
 
             element = self._ensure_element(w)
             if element.action(target) - rho_hat == Lambda:
                 result.append(element)
 
-        identity = self._W.one()
+        identity = self.weyl_group.one()
         if all(self._element_key(w) != self._element_key(identity) for w in result):
             result.append(identity)
 
@@ -616,7 +606,7 @@ class KazhdanLusztigPolynomials:
         """Compute bounded affine coset-level Q̃ using an explicit stabilizer set."""
         from .bruhat import BruhatOrder
 
-        bruhat = BruhatOrder(self._W)
+        bruhat = BruhatOrder(self.weyl_group)
         x_min = self._ensure_element(x_min)
         y_min = self._ensure_element(y_min)
         bounded_candidates = [self._ensure_element(w) for w in candidates]
@@ -673,7 +663,7 @@ class KazhdanLusztigPolynomials:
         """Find the maximal length representative of a coset."""
         from .bruhat import BruhatOrder
 
-        bruhat = BruhatOrder(self._W)
+        bruhat = BruhatOrder(self.weyl_group)
 
         # Start from minimal rep and multiply by longest element of W_I
         # The maximal rep is w_min * w_I^0 where w_I^0 is longest in W_I
@@ -682,7 +672,7 @@ class KazhdanLusztigPolynomials:
         while changed:
             changed = False
             for i in parabolic.generators:
-                s_i = self._W.simple_reflection(i)
+                s_i = self.weyl_group.simple_reflection(i)
                 product = current * s_i
                 if bruhat.length(product) > bruhat.length(current):
                     current = product
@@ -694,7 +684,7 @@ class KazhdanLusztigPolynomials:
         """Get all elements in the coset of w_min."""
         from .bruhat import BruhatOrder
 
-        bruhat = BruhatOrder(self._W)
+        bruhat = BruhatOrder(self.weyl_group)
 
         # Generate coset by multiplying w_min by all elements of W_I
         result = [w_min]
@@ -704,7 +694,7 @@ class KazhdanLusztigPolynomials:
         while queue:
             current = queue.pop(0)
             for i in parabolic.generators:
-                s_i = self._W.simple_reflection(i)
+                s_i = self.weyl_group.simple_reflection(i)
                 # Right multiplication for right cosets
                 new_elem = current * s_i
                 key = self._element_key(new_elem)
@@ -734,7 +724,7 @@ class KazhdanLusztigPolynomials:
             Path to saved cache file
         """
         if filename is None:
-            ct_str = str(self._cartan_type).replace(" ", "_")
+            ct_str = str(self.cartan_type).replace(" ", "_")
             filename = f"kl_cache_{ct_str}.json"
 
         filepath = self._cache_dir / filename
@@ -742,7 +732,7 @@ class KazhdanLusztigPolynomials:
         # Convert cache to serializable format
         cache_data = {
             "cache_version": self.CACHE_VERSION,
-            "cartan_type": str(self._cartan_type),
+            "cartan_type": str(self.cartan_type),
             "value_kind": "Q_at_one",
             "Q_at_one_cache": {
                 self._cache_key_to_string(k): self._json_scalar(v)
@@ -770,7 +760,7 @@ class KazhdanLusztigPolynomials:
             True if cache was loaded successfully
         """
         if filename is None:
-            ct_str = str(self._cartan_type).replace(" ", "_")
+            ct_str = str(self.cartan_type).replace(" ", "_")
             filename = f"kl_cache_{ct_str}.json"
 
         filepath = self._cache_dir / filename
@@ -785,7 +775,7 @@ class KazhdanLusztigPolynomials:
             if cache_data.get("cache_version") != self.CACHE_VERSION:
                 return False
 
-            if cache_data.get("cartan_type") != str(self._cartan_type):
+            if cache_data.get("cartan_type") != str(self.cartan_type):
                 return False
 
             if cache_data.get("value_kind") not in {"Q_at_one", "Q_tilde_at_one"}:
@@ -803,11 +793,11 @@ class KazhdanLusztigPolynomials:
     # =========================================================================
 
     def _ensure_element(self, w: Any) -> Any:
-        """Ensure w is an element of self._W."""
-        if hasattr(w, "parent") and w.parent() == self._W:
+        """Ensure w is an element of self.weyl_group."""
+        if hasattr(w, "parent") and w.parent() == self.weyl_group:
             return w
         if isinstance(w, (list, tuple)):
-            return self._W.from_reduced_word(w)
+            return self.weyl_group.from_reduced_word(w)
         return w
 
     def _element_key(self, w: Any) -> Tuple[int, ...]:

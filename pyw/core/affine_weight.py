@@ -230,44 +230,25 @@ class AffineWeight:
         grade : number, optional
             The L₀ eigenvalue n (default: 0)
         """
-        self._algebra = algebra
-        self._finite_part = finite_part
-        self._level = QQ(level)
-        self._grade = QQ(grade)
+        self.algebra = algebra
+        self.finite_part = finite_part
+        self.level = QQ(level)
+        self.grade = QQ(grade)
 
     # =========================================================================
     # Properties
     # =========================================================================
 
-    @property
-    def algebra(self) -> "AffineLieAlgebra":
-        """The affine Lie algebra context."""
-        return self._algebra
-
-    @property
-    def finite_part(self) -> Any:
-        """The finite part λ of the affine weight."""
-        return self._finite_part
-
-    @property
-    def level(self) -> Any:
-        """The level k = ̂λ(k̂)."""
-        return self._level
-
-    @property
-    def grade(self) -> Any:
-        """The L₀ eigenvalue n = ̂λ(-L₀)."""
-        return self._grade
-
+    # NOTE: 压平属性，不需要 ._XXXX 属性，留 .XXXX 就可以了
     @property
     def k(self) -> Any:
         """Alias for level (Di Francesco notation)."""
-        return self._level
+        return self.level
 
     @property
     def n(self) -> Any:
         """Alias for grade (Di Francesco notation)."""
-        return self._grade
+        return self.grade
 
     # =========================================================================
     # Representation
@@ -275,17 +256,17 @@ class AffineWeight:
 
     def __repr__(self) -> str:
         """Return a string representation in Di Francesco notation."""
-        return f"AffineWeight({self._finite_part}; {self._level}; {self._grade})"
+        return f"AffineWeight({self.finite_part}; {self.level}; {self.grade})"
 
     def __str__(self) -> str:
         """Return a human-readable string in Di Francesco notation."""
-        return f"({self._finite_part}; {self._level}; {self._grade})"
+        return f"({self.finite_part}; {self.level}; {self.grade})"
 
     def _repr_latex_(self) -> str:
         """LaTeX representation for Jupyter notebooks."""
-        finite_latex = _weight_to_latex(self._finite_part)
-        level_latex = _rational_to_latex(self._level)
-        grade_latex = _rational_to_latex(self._grade)
+        finite_latex = _weight_to_latex(self.finite_part)
+        level_latex = _rational_to_latex(self.level)
+        grade_latex = _rational_to_latex(self.grade)
         return f"$({finite_latex};\\ {level_latex};\\ {grade_latex})$"
 
     def to_tuple(self) -> Tuple[Any, Any, Any]:
@@ -297,7 +278,7 @@ class AffineWeight:
         tuple
             (finite_part, level, grade)
         """
-        return (self._finite_part, self._level, self._grade)
+        return (self.finite_part, self.level, self.grade)
 
     # =========================================================================
     # Arithmetic Operations
@@ -321,14 +302,14 @@ class AffineWeight:
         """
         if not isinstance(other, AffineWeight):
             return NotImplemented
-        if self._algebra != other._algebra:
+        if self.algebra != other.algebra:
             raise ValueError("Cannot add weights from different algebras")
 
         return AffineWeight(
-            self._algebra,
-            self._finite_part + other._finite_part,
-            self._level + other._level,
-            self._grade + other._grade,
+            self.algebra,
+            self.finite_part + other.finite_part,
+            self.level + other.level,
+            self.grade + other.grade,
         )
 
     def __sub__(self, other: "AffineWeight") -> "AffineWeight":
@@ -349,14 +330,14 @@ class AffineWeight:
         """
         if not isinstance(other, AffineWeight):
             return NotImplemented
-        if self._algebra != other._algebra:
+        if self.algebra != other.algebra:
             raise ValueError("Cannot subtract weights from different algebras")
 
         return AffineWeight(
-            self._algebra,
-            self._finite_part - other._finite_part,
-            self._level - other._level,
-            self._grade - other._grade,
+            self.algebra,
+            self.finite_part - other.finite_part,
+            self.level - other.level,
+            self.grade - other.grade,
         )
 
     def __neg__(self) -> "AffineWeight":
@@ -370,7 +351,7 @@ class AffineWeight:
         AffineWeight
             The negation
         """
-        return AffineWeight(self._algebra, -self._finite_part, -self._level, -self._grade)
+        return AffineWeight(self.algebra, -self.finite_part, -self.level, -self.grade)
 
     def __mul__(self, scalar: Union[int, Fraction, Any]) -> "AffineWeight":
         """
@@ -391,12 +372,12 @@ class AffineWeight:
         c = QQ(scalar)
         # For SageMath weight lattice/space elements, need to use Integer ratio form
         # to ensure proper coercion
-        if hasattr(self._finite_part, "parent"):
+        if hasattr(self.finite_part, "parent"):
             # Use c directly - SageMath handles Integer/Integer ratios correctly
-            new_finite = c * self._finite_part
+            new_finite = c * self.finite_part
         else:
-            new_finite = self._finite_part * c
-        return AffineWeight(self._algebra, new_finite, self._level * c, self._grade * c)
+            new_finite = self.finite_part * c
+        return AffineWeight(self.algebra, new_finite, self.level * c, self.grade * c)
 
     def __rmul__(self, scalar: Union[int, Fraction, Any]) -> "AffineWeight":
         """Right multiplication by scalar."""
@@ -421,7 +402,7 @@ class AffineWeight:
         c = QQ(scalar)
         if c == 0:
             raise ZeroDivisionError("Cannot divide by zero")
-        return AffineWeight(self._algebra, self._finite_part / c, self._level / c, self._grade / c)
+        return AffineWeight(self.algebra, self.finite_part / c, self.level / c, self.grade / c)
 
     # =========================================================================
     # Equality and Hashing
@@ -432,15 +413,15 @@ class AffineWeight:
         if not isinstance(other, AffineWeight):
             return False
         return (
-            self._algebra == other._algebra
-            and self._finite_part == other._finite_part
-            and self._level == other._level
-            and self._grade == other._grade
+            self.algebra == other.algebra
+            and self.finite_part == other.finite_part
+            and self.level == other.level
+            and self.grade == other.grade
         )
 
     def __hash__(self) -> int:
         """Hash for use in sets and dicts."""
-        return hash((str(self._finite_part), float(self._level), float(self._grade)))
+        return hash((str(self.finite_part), float(self.level), float(self.grade)))
 
     # =========================================================================
     # Scalar Product (Di Francesco Eq. 14.23)
@@ -483,10 +464,10 @@ class AffineWeight:
             raise TypeError("Expected AffineWeight")
 
         # Compute finite part scalar product
-        finite_scalar = self._algebra.scalar_product(self._finite_part, other._finite_part)
+        finite_scalar = self.algebra.scalar_product(self.finite_part, other.finite_part)
 
         # Add cross terms
-        cross_terms = self._level * other._grade + other._level * self._grade
+        cross_terms = self.level * other.grade + other.level * self.grade
 
         return finite_scalar + cross_terms
 
@@ -607,21 +588,21 @@ class AffineWeight:
         This uses the formula λ₀ = k - (λ, θ) = k - Σ a_i λ_i
         from Di Francesco Eq. (14.57).
         """
-        if not self._algebra.is_affine:
+        if not self.algebra.is_affine:
             raise ValueError("Algebra must be affine type for this conversion")
 
         # Get finite Dynkin labels from finite_part
-        mc = self._finite_part.monomial_coefficients()
+        mc = self.finite_part.monomial_coefficients()
 
         # Convert to dict with integer keys
         finite_labels = {i: mc.get(i, 0) for i in mc.keys()}
 
         # Compute λ₀ = k - (λ, θ) = k - Σ a_i λ_i
-        lambda0 = self._algebra.lambda0_from_level(int(self._level), finite_labels)
+        lambda0 = self.algebra.lambda0_from_level(int(self.level), finite_labels)
 
         # Build affine weight using integer coefficients
         # Use fundamental_weights_sage() to get SageMath native weights
-        affine_Lambda = self._algebra.fundamental_weights_sage()
+        affine_Lambda = self.algebra.fundamental_weights_sage()
         result = int(lambda0) * affine_Lambda[0]
         for i, coeff in finite_labels.items():
             if coeff != 0 and i in affine_Lambda:
@@ -630,14 +611,14 @@ class AffineWeight:
         return result
 
     def to_legacy_expression(self) -> str:
-        if not self._algebra.is_affine:
+        if not self.algebra.is_affine:
             raise ValueError("Legacy affine expression export requires an affine algebra")
 
-        finite_mc = self._finite_part.monomial_coefficients()
-        finite_index_set = self._algebra._finite_root_system.weight_space().index_set()
-        comarks = self._algebra.comarks
+        finite_mc = self.finite_part.monomial_coefficients()
+        finite_index_set = self.algebra._finite_root_system.weight_space().index_set()
+        comarks = self.algebra.comarks
         finite_sum = sum(QQ(comarks.get(i, 0)) * QQ(finite_mc.get(i, 0)) for i in finite_index_set)
-        lambda_0 = QQ(self._level) - finite_sum
+        lambda_0 = QQ(self.level) - finite_sum
 
         signed_terms: list[tuple[str, str]] = []
 
@@ -657,7 +638,7 @@ class AffineWeight:
         append_symbol(lambda_0, "Lambda[0]")
         for idx in sorted(finite_index_set):
             append_symbol(finite_mc.get(idx, 0), f"Lambda[{idx}]")
-        append_symbol(QQ(self._grade), "delta")
+        append_symbol(QQ(self.grade), "delta")
 
         if not signed_terms:
             return "0"
@@ -670,15 +651,15 @@ class AffineWeight:
 
     def finite_part_in_fundamental_weight_basis(self) -> Any:
         """Return the finite part rewritten in the fundamental-weight basis."""
-        if self._algebra.is_affine:
-            finite_ws = self._algebra._finite_root_system.weight_space()
+        if self.algebra.is_affine:
+            finite_ws = self.algebra._finite_root_system.weight_space()
         else:
-            finite_ws = self._algebra.root_system().weight_space()
-        return finite_ws(self._finite_part)
+            finite_ws = self.algebra.root_system().weight_space()
+        return finite_ws(self.finite_part)
 
     def finite_part_in_simple_root_basis(self) -> Any:
         """Return the finite part rewritten in the simple-root basis."""
-        return self._algebra.weight_to_root(self.finite_part_in_fundamental_weight_basis(), finite=True)
+        return self.algebra.weight_to_root(self.finite_part_in_fundamental_weight_basis(), finite=True)
 
     def to_fundamental_weight_basis(self) -> Tuple[Any, Any, Any]:
         """Return ``(finite_part, level, grade)`` with finite part in weight basis."""
@@ -733,32 +714,32 @@ class AffineWeight:
         m_alpha = alpha.grade  # m for affine root (α; 0; m)
 
         # Compute (λ, α) - finite scalar product
-        lambda_dot_alpha = self._algebra.scalar_product(self._finite_part, alpha_finite)
+        lambda_dot_alpha = self.algebra.scalar_product(self.finite_part, alpha_finite)
 
         # Get |α|²
-        alpha_norm_sq = self._algebra.scalar_product(alpha_finite, alpha_finite)
+        alpha_norm_sq = self.algebra.scalar_product(alpha_finite, alpha_finite)
 
         if alpha_norm_sq == 0:
             # Imaginary root - no reflection
             return self
 
         # Compute coefficient: (λ, α) + k_λ m_α
-        coeff = lambda_dot_alpha + self._level * m_alpha
+        coeff = lambda_dot_alpha + self.level * m_alpha
 
         # α^∨ = (2/|α|²) α
         alpha_vee_factor = 2 / alpha_norm_sq
 
         # New finite part: λ - coeff * α^∨
-        new_finite = self._finite_part - alpha_finite * (coeff * alpha_vee_factor)
+        new_finite = self.finite_part - alpha_finite * (coeff * alpha_vee_factor)
 
         # Level unchanged
-        new_level = self._level
+        new_level = self.level
 
         # New grade: n - coeff * 2m/|α|²
         n_correction = coeff * (2 * m_alpha / alpha_norm_sq)
-        new_grade = self._grade - n_correction
+        new_grade = self.grade - n_correction
 
-        return AffineWeight(self._algebra, new_finite, new_level, new_grade)
+        return AffineWeight(self.algebra, new_finite, new_level, new_grade)
 
     def simple_reflection(self, i: int) -> "AffineWeight":
         """
@@ -784,11 +765,11 @@ class AffineWeight:
         >>> w = AffineWeight(ala, Lambda[1], level=1, grade=0)
         >>> w.simple_reflection(1)  # s_1(̂Λ₁)
         """
-        affine_root = AffineWeight.affine_simple_root(self._algebra, i)
+        affine_root = AffineWeight.affine_simple_root(self.algebra, i)
         return self.weyl_reflect(affine_root)
 
     def associated_reflection(self) -> tuple[int, ...]:
-        return self._algebra.affine_weyl_group().associated_reflection_word(self)
+        return self.algebra.affine_weyl_group().associated_reflection_word(self)
 
     def translate(self, beta: Any) -> "AffineWeight":
         """
@@ -822,14 +803,14 @@ class AffineWeight:
         This is the Di Francesco convention. Kac-Wakimoto uses the opposite
         sign: t_β^{KW} = t_{-β}^{DF}.
         """
-        if self._level == 0:
+        if self.level == 0:
             raise ValueError("Cannot translate at level k = 0")
 
         # Convert beta to the same space as finite_part if needed
         # Beta (coroot) is typically in coroot_space, but we need to add it to weight_space
         beta_coeffs = beta.monomial_coefficients()
-        if hasattr(self._finite_part, "parent"):
-            parent = self._finite_part.parent()
+        if hasattr(self.finite_part, "parent"):
+            parent = self.finite_part.parent()
             # Reconstruct beta in the weight space using simple roots/weights
             # For simply-laced algebras, this is straightforward
             simple_elements = (
@@ -845,16 +826,16 @@ class AffineWeight:
             beta_in_parent = beta
 
         # New finite part: λ + kβ
-        new_finite = self._finite_part + beta_in_parent * self._level
+        new_finite = self.finite_part + beta_in_parent * self.level
 
         # Compute grade correction
-        lambda_norm_sq = self._algebra.scalar_product(self._finite_part, self._finite_part)
-        new_lambda_norm_sq = self._algebra.scalar_product(new_finite, new_finite)
+        lambda_norm_sq = self.algebra.scalar_product(self.finite_part, self.finite_part)
+        new_lambda_norm_sq = self.algebra.scalar_product(new_finite, new_finite)
 
-        n_correction = (lambda_norm_sq - new_lambda_norm_sq) / (2 * self._level)
-        new_grade = self._grade + n_correction
+        n_correction = (lambda_norm_sq - new_lambda_norm_sq) / (2 * self.level)
+        new_grade = self.grade + n_correction
 
-        return AffineWeight(self._algebra, new_finite, self._level, new_grade)
+        return AffineWeight(self.algebra, new_finite, self.level, new_grade)
 
     # =========================================================================
     # Factory Methods for Special Elements
@@ -1164,24 +1145,24 @@ class AffineWeight:
         >>> w = AffineWeight.affine_fundamental_weight(ala, 1)
         >>> w.dynkin_labels()  # {0: 0, 1: 1, 2: 0}
         """
-        if not self._algebra.is_affine:
+        if not self.algebra.is_affine:
             raise ValueError("Algebra must be affine type")
 
         # Get finite Dynkin labels from finite_part
-        finite_mc = self._finite_part.monomial_coefficients()
+        finite_mc = self.finite_part.monomial_coefficients()
 
         # Get marks for computing λ₀
-        marks = self._algebra.marks
+        marks = self.algebra.marks
 
         # λ₀ = k - (λ, θ) = k - Σ a_i λ_i (where a_i are marks for i > 0)
         theta_dot_lambda = sum(
             marks.get(i, 0) * finite_mc.get(i, 0) for i in marks.keys() if i != 0
         )
-        lambda_0 = self._level - theta_dot_lambda
+        lambda_0 = self.level - theta_dot_lambda
 
         # Build full Dynkin labels
         result = {0: lambda_0}
-        for i in self._algebra._finite_root_system.weight_space().index_set():
+        for i in self.algebra._finite_root_system.weight_space().index_set():
             result[i] = finite_mc.get(i, 0)
 
         return result

@@ -8,8 +8,6 @@ from .weight_space import FractionalWeightSpace
 from .affine_lie_algebra import (
     AffineLieAlgebra,
     scalar_product,
-    get_marks,
-    get_comarks,
     weyl_reflection,
 )
 from .affine_weight import (
@@ -19,7 +17,14 @@ from .affine_weight import (
 )
 from .bruhat import BruhatOrder, ParabolicSubgroup, CosetRepresentative
 from .kazhdan_lusztig import KazhdanLusztigPolynomials
-from .character import FormalCharacter, WeylKacDenominator, VermaCharacter
+from .character import (
+    FormalCharacter,
+    WeylKacDenominator,
+    VermaCharacter,
+    KazhdanLusztigCharacter,
+    KazhdanLusztigData,
+    KLNumeratorTerm,
+)
 
 __all__ = [
     "AffineRootSystem",
@@ -27,8 +32,6 @@ __all__ = [
     "FractionalWeightSpace",
     "AffineLieAlgebra",
     "scalar_product",
-    "get_marks",
-    "get_comarks",
     "weyl_reflection",
     # Di Francesco notation for affine weights
     "AffineWeight",
@@ -39,8 +42,11 @@ __all__ = [
     "ParabolicSubgroup",
     "CosetRepresentative",
     "KazhdanLusztigPolynomials",
+    "KazhdanLusztigData",
+    "KLNumeratorTerm",
     # Character computation
     "FormalCharacter",
     "WeylKacDenominator",
     "VermaCharacter",
+    "KazhdanLusztigCharacter",
 ]

@@ -71,8 +71,8 @@ class BruhatOrder:
         coxeter_group : CoxeterGroup or WeylGroup
             A SageMath Coxeter or Weyl group object
         """
-        self._W = coxeter_group
-        self._cartan_type = coxeter_group.cartan_type()
+        self.weyl_group = coxeter_group
+        self.cartan_type = coxeter_group.cartan_type()
 
     @classmethod
     def from_cartan_type(cls, cartan_type: Union[str, list, tuple]) -> "BruhatOrder":
@@ -114,16 +114,6 @@ class BruhatOrder:
             A new BruhatOrder instance
         """
         return cls.from_cartan_type(algebra._cartan_type)
-
-    @property
-    def weyl_group(self) -> Any:
-        """The underlying SageMath Weyl/Coxeter group."""
-        return self._W
-
-    @property
-    def cartan_type(self) -> Any:
-        """The Cartan type of the group."""
-        return self._cartan_type
 
     # =========================================================================
     # Bruhat Order Comparison
@@ -246,8 +236,8 @@ class BruhatOrder:
             raise ValueError(f"Empty interval: {w1} is not ≤ {w2}")
 
         # Use SageMath's bruhat_interval if available
-        if hasattr(self._W, "bruhat_interval"):
-            interval = list(self._W.bruhat_interval(w1, w2))
+        if hasattr(self.weyl_group, "bruhat_interval"):
+            interval = list(self.weyl_group.bruhat_interval(w1, w2))
             return sorted(interval, key=lambda w: (self.length(w), tuple(self.reduced_word(w))))
 
         # Fallback: enumerate by BFS from w1
@@ -357,13 +347,13 @@ class BruhatOrder:
     # =========================================================================
 
     def _ensure_element(self, w: Any) -> Any:
-        """Ensure w is an element of self._W."""
-        if hasattr(w, "parent") and w.parent() == self._W:
+        """Ensure w is an element of self.weyl_group."""
+        if hasattr(w, "parent") and w.parent() == self.weyl_group:
             return w
         # Try to convert
         if isinstance(w, (list, tuple)):
             # Assume it's a reduced word
-            return self._W.from_reduced_word(w)
+            return self.weyl_group.from_reduced_word(w)
         return w
 
     def _bruhat_le_subword(self, w1: Any, w2: Any) -> bool:
@@ -423,8 +413,8 @@ class BruhatOrder:
                 continue
 
             # Try multiplying by each simple reflection
-            for i in self._W.index_set():
-                s_i = self._W.simple_reflection(i)
+            for i in self.weyl_group.index_set():
+                s_i = self.weyl_group.simple_reflection(i)
 
                 # Try right multiplication
                 next_w = current * s_i
@@ -474,14 +464,9 @@ class ParabolicSubgroup:
 
     def __post_init__(self):
         """Validate and compute complement."""
-        self._W = self.bruhat.weyl_group
-        self._all_indices = set(self._W.index_set())
+        self.weyl_group = self.bruhat.weyl_group
+        self._all_indices = set(self.weyl_group.index_set())
         self.complement = self._all_indices - self.generators
-
-    @property
-    def weyl_group(self) -> Any:
-        """The parent Weyl group W."""
-        return self._W
 
     def contains(self, w: Any) -> bool:
         """
@@ -542,7 +527,7 @@ class ParabolicSubgroup:
         while changed:
             changed = False
             for i in self.generators:
-                s_i = self._W.simple_reflection(i)
+                s_i = self.weyl_group.simple_reflection(i)
                 # Check if s_i * current has smaller length
                 product = s_i * current
                 if self.bruhat.length(product) < self.bruhat.length(current):
@@ -558,7 +543,7 @@ class ParabolicSubgroup:
         while changed:
             changed = False
             for i in self.generators:
-                s_i = self._W.simple_reflection(i)
+                s_i = self.weyl_group.simple_reflection(i)
                 # Check if current * s_i has smaller length
                 product = current * s_i
                 if self.bruhat.length(product) < self.bruhat.length(current):
@@ -589,8 +574,8 @@ class ParabolicSubgroup:
         # For finite groups, enumerate all elements
         # For affine groups, need max_length bound
         if max_length is None:
-            if self._W.is_finite():
-                elements = list(self._W)
+            if self.weyl_group.is_finite():
+                elements = list(self.weyl_group)
             else:
                 raise ValueError("max_length required for infinite groups")
         else:
@@ -606,14 +591,14 @@ class ParabolicSubgroup:
 
     def _enumerate_up_to_length(self, max_length: int) -> List[Any]:
         """Enumerate Weyl group elements up to given length."""
-        result = [self._W.one()]
-        current_level = [self._W.one()]
+        result = [self.weyl_group.one()]
+        current_level = [self.weyl_group.one()]
 
         for _ in range(max_length):
             next_level = []
             for w in current_level:
-                for i in self._W.index_set():
-                    s_i = self._W.simple_reflection(i)
+                for i in self.weyl_group.index_set():
+                    s_i = self.weyl_group.simple_reflection(i)
                     # Right multiplication
                     w_new = w * s_i
                     if self.bruhat.length(w_new) == self.bruhat.length(w) + 1:
@@ -645,20 +630,15 @@ class CosetRepresentative:
     """
 
     def __init__(self, representative: Any, parabolic: ParabolicSubgroup, left: bool = True):
-        self._rep = parabolic.minimal_coset_representative(representative, left=left)
+        self.representative = parabolic.minimal_coset_representative(representative, left=left)
         self._parabolic = parabolic
         self._left = left
         self._bruhat = parabolic.bruhat
 
     @property
-    def representative(self) -> Any:
-        """The minimal-length coset representative."""
-        return self._rep
-
-    @property
     def length(self) -> int:
         """Length of the representative."""
-        return self._bruhat.length(self._rep)
+        return self._bruhat.length(self.representative)
 
     def bruhat_le(self, other: "CosetRepresentative") -> bool:
         """
@@ -679,13 +659,13 @@ class CosetRepresentative:
         """
         if self._parabolic != other._parabolic or self._left != other._left:
             raise ValueError("Cannot compare cosets from different parabolic data")
-        return self._bruhat.le(self._rep, other._rep)
+        return self._bruhat.le(self.representative, other.representative)
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, CosetRepresentative):
             return False
         return (
-            self._rep == other._rep
+            self.representative == other.representative
             and self._parabolic == other._parabolic
             and self._left == other._left
         )
@@ -695,12 +675,12 @@ class CosetRepresentative:
             (
                 tuple(sorted(self._parabolic.generators)),
                 self._left,
-                tuple(self._bruhat.reduced_word(self._rep)),
+                tuple(self._bruhat.reduced_word(self.representative)),
             )
         )
 
     def __repr__(self) -> str:
-        word = self._bruhat.reduced_word(self._rep)
+        word = self._bruhat.reduced_word(self.representative)
         if not word:
             return "[1]"
         return f"[{'*'.join(f's{i}' for i in word)}]"

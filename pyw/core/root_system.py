@@ -11,56 +11,52 @@ from sage.all import RootSystem
 
 class RootWithReflection:
     def __init__(self, root: Any) -> None:
-        self._root = root
-
-    @property
-    def sage_root(self) -> Any:
-        return self._root
+        self.sage_root = root
 
     def associated_reflection(self) -> tuple[int, ...]:
-        return tuple(int(i) for i in self._root.associated_reflection())
+        return tuple(int(i) for i in self.sage_root.associated_reflection())
 
     def __getattr__(self, name: str) -> Any:
-        return getattr(self._root, name)
+        return getattr(self.sage_root, name)
 
     def __repr__(self) -> str:
-        return repr(self._root)
+        return repr(self.sage_root)
 
     def __str__(self) -> str:
-        return str(self._root)
+        return str(self.sage_root)
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, RootWithReflection):
-            return self._root == other._root
-        return self._root == other
+            return self.sage_root == other.sage_root
+        return self.sage_root == other
 
     def __hash__(self) -> int:
-        return hash(self._root)
+        return hash(self.sage_root)
 
     def __neg__(self) -> Any:
-        return -self._root
+        return -self.sage_root
 
     def __add__(self, other: Any) -> Any:
         if isinstance(other, RootWithReflection):
-            return self._root + other._root
-        return self._root + other
+            return self.sage_root + other.sage_root
+        return self.sage_root + other
 
     def __radd__(self, other: Any) -> Any:
-        return other + self._root
+        return other + self.sage_root
 
     def __sub__(self, other: Any) -> Any:
         if isinstance(other, RootWithReflection):
-            return self._root - other._root
-        return self._root - other
+            return self.sage_root - other.sage_root
+        return self.sage_root - other
 
     def __rsub__(self, other: Any) -> Any:
-        return other - self._root
+        return other - self.sage_root
 
     def __mul__(self, other: Any) -> Any:
-        return self._root * other
+        return self.sage_root * other
 
     def __rmul__(self, other: Any) -> Any:
-        return other * self._root
+        return other * self.sage_root
 
 
 class AffineRootSystem:
@@ -112,29 +108,19 @@ class AffineRootSystem:
             TypeError: If cartan_type is not a tuple or list
         """
         if isinstance(cartan_type, list):
-            self._cartan_type: Union[Tuple[str, int], List[Union[str, int]]] = cartan_type
+            self.cartan_type: Union[Tuple[str, int], List[Union[str, int]]] = cartan_type
         elif isinstance(cartan_type, tuple):
-            self._cartan_type = cartan_type
+            self.cartan_type = cartan_type
         else:
             raise TypeError(f"cartan_type must be tuple or list, got {type(cartan_type)}")
 
-        self._root_system = None
+        self.sage_root_system = None
         self._cartan_matrix = None
-        self._roots = None
+        self.sage_roots = None
         self._coroots = None
         self._simple_roots = None
         self._simple_coroots = None
         self._dual_coxeter_number = None
-
-    @property
-    def cartan_type(self) -> Union[Tuple[str, int], List[Union[str, int]]]:
-        """
-        Get the Cartan type of the root system.
-
-        Returns:
-            The Cartan type as a tuple (for finite) or list (for affine)
-        """
-        return self._cartan_type
 
     @property
     def root_system(self) -> RootSystem:
@@ -147,9 +133,9 @@ class AffineRootSystem:
         Notes:
             This provides direct access to all SageMath RootSystem methods
         """
-        if self._root_system is None:
-            self._root_system = RootSystem(self._cartan_type)
-        return self._root_system
+        if self.sage_root_system is None:
+            self.sage_root_system = RootSystem(self.cartan_type)
+        return self.sage_root_system
 
     @property
     def cartan_matrix(self):
@@ -180,10 +166,10 @@ class AffineRootSystem:
             For affine types: returns roots from the ambient space,
             which includes both real and imaginary roots
         """
-        if self._roots is None:
+        if self.sage_roots is None:
             ambient_space = self.root_system.ambient_space()
-            self._roots = list(ambient_space.roots())
-        return self._roots
+            self.sage_roots = list(ambient_space.roots())
+        return self.sage_roots
 
     @property
     def coroots(self) -> List[Any]:
@@ -292,7 +278,7 @@ class AffineRootSystem:
         Returns:
             String representation showing the Cartan type
         """
-        return f"AffineRootSystem({self._cartan_type})"
+        return f"AffineRootSystem({self.cartan_type})"
 
     def wrap_root(self, root: Any) -> RootWithReflection:
         return RootWithReflection(root)

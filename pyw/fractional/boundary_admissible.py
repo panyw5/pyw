@@ -17,6 +17,7 @@ try:
 except ImportError:
     # Fallback for environments without SageMath
     Integer = int
+    RootSystem = None
     Rational = Fraction
 
 
@@ -70,6 +71,8 @@ class BoundaryAdmissibleWeights:
 
     def _setup(self) -> None:
         """Initialize root system, weight space, and fundamental weights."""
+        if RootSystem is None:
+            raise ImportError("BoundaryAdmissibleWeights requires SageMath (sage.all.RootSystem)")
         # Create root system and extended weight space
         self.root_system = RootSystem(self.cartan_type)
         self.weight_space = self.root_system.weight_space(extended=True)
@@ -93,7 +96,7 @@ class BoundaryAdmissibleWeights:
         # In general: ρ̂ = sum of all fundamental weights
         self.rho_hat = self.weight_space.rho()
 
-    def compute_sl2_admissible_weights(self) -> List[Tuple[int, Any, str]]:
+    def sl2_admissible_weight_data(self) -> List[Tuple[int, Any, str]]:
         """
         Compute principal admissible weights for sl(2) at level k = -4/3.
 
@@ -142,7 +145,7 @@ class BoundaryAdmissibleWeights:
 
         return results
 
-    def compute_conformal_dimensions(self) -> List[Fraction]:
+    def sl2_conformal_dimensions(self) -> List[Fraction]:
         """
         Compute conformal dimensions h_Λ for each admissible weight.
 
@@ -240,7 +243,7 @@ class BoundaryAdmissibleWeights:
         return " + ".join(parts).replace("+ -", "- ")
 
 
-def verify_sl2_neg_4_3():
+def verify_sl2_level_neg_4_3():
     """
     Verify the computation of sl(2) admissible weights at level k = -4/3.
 
@@ -264,7 +267,7 @@ def verify_sl2_neg_4_3():
     print(f"u = {baw.u}")
 
     print("\n--- Principal Admissible Weights ---")
-    weights = baw.compute_sl2_admissible_weights()
+    weights = baw.sl2_admissible_weight_data()
 
     for m, weight, latex in weights:
         print(f"\nm = {m}:")
@@ -272,7 +275,7 @@ def verify_sl2_neg_4_3():
         print(f"  Sage:  {weight}")
 
     print("\n--- Conformal Dimensions ---")
-    dimensions = baw.compute_conformal_dimensions()
+    dimensions = baw.sl2_conformal_dimensions()
 
     expected = [Fraction(0, 1), Fraction(2, 3), Fraction(5, 3)]
     print(f"\nExpected: {expected}")
@@ -296,4 +299,4 @@ def verify_sl2_neg_4_3():
 
 
 if __name__ == "__main__":
-    verify_sl2_neg_4_3()
+    verify_sl2_level_neg_4_3()

@@ -7,9 +7,19 @@ the integer weight lattice.
 """
 
 from fractions import Fraction
-from typing import Dict, Union
+from typing import TYPE_CHECKING, Dict, Union
 
-from sage.all import Integer, RootSystem
+from sage.all import Integer, RootSystem, ZZ
+
+if TYPE_CHECKING:
+    from .affine_weight import AffineWeight
+
+
+def is_integral_affine_weight(weight: "AffineWeight") -> bool:
+    """Return whether an affine weight has integral Dynkin labels."""
+
+    labels = weight.dynkin_labels()
+    return all(value in ZZ for value in labels.values())
 
 
 class FractionalWeightSpace:
