@@ -897,7 +897,9 @@ class AffineWeylGroupSemidirectElement:
     def translation_vector(self) -> Any:
         return self._beta
 
-    def _word_tuple(self) -> tuple[int, ...]:
+    def word(self) -> tuple[int, ...]:
+        if self._affine_word_override is not None:
+            return self._affine_word_override
         if self._abstract_word:
             if any(i is None for i in self._abstract_word):
                 raise TypeError(
@@ -909,40 +911,42 @@ class AffineWeylGroupSemidirectElement:
                     raise TypeError("Word is unavailable for non-simple affine-root reflections")
                 out.append(int(i))
             return tuple(out)
-        if self._affine_word_override is not None:
-            return self._affine_word_override
 
         finite_word = tuple(int(i) for i in self._w.reduced_word())
         translation_word = self._group._translation_word(self._beta)
         return finite_word + translation_word
 
-    # NOTE: 移除函数套娃，.word() 代替 ._word_tuple()
-    def word(self) -> tuple[int, ...]:
-        return self._word_tuple()
-
-    # NOTE: self.reduced_word().reduced_word() 为什么 .reduce_word() 要施加两次？
+    # 返回 reduce_word 数组 [i, j, ...], 其中 i, j, ... = 0, 1, ..., r
     def reduced_word_list(self) -> list[int]:
-        return [int(i) for i in self.reduced_word().reduced_word()]
+        sage_element = self.reduced_word()
+        return [int(i) for i in sage_element.reduced_word()]
 
+    # 返回一串 sage weyl group simple reflection 的乘积，s_i * s_j * ...
+    # 而不是数组 [i, j, ...]，其中 i, j, ... = 0, 1, ..., r
     def reduced_word(self) -> Any:
         sage_group = self._group.algebra.affine_weyl_group_sage()
         return sage_group.from_reduced_word(list(self.word()))
 
     def length(self) -> int:
-        return len(self.reduced_word_list())
+        return int(self.reduced_word().length())
 
     def bruhat_le(self, other: Any) -> bool:
-        short = self.reduced_word_list()
-        long = other.reduced_word_list() if hasattr(other, "reduced_word_list") else list(other.reduced_word())
+        sage_group = self._group.algebra.affine_weyl_group_sage()
+        left = self.reduced_word()
 
-        if len(short) > len(long):
-            return False
+        if isinstance(other, AffineWeylGroupSemidirectElement):
+            right = other.reduced_word()
+        elif isinstance(other, (list, tuple)):
+            right = sage_group.from_reduced_word([int(i) for i in other])
+        elif hasattr(other, "bruhat_le"):
+            right = other
+        elif hasattr(other, "reduced_word"):
+            right_word = other.reduced_word()
+            right = sage_group.from_reduced_word([int(i) for i in right_word])
+        else:
+            raise TypeError("Cannot compare Bruhat order with unsupported element type")
 
-        i = 0
-        for s in long:
-            if i < len(short) and short[i] == s:
-                i += 1
-        return i == len(short)
+        return bool(left.bruhat_le(right))
 
     def semidirect_components(self, factor_order: str | None = None) -> tuple[Any, Any]:
         """Return semidirect components in ``st`` or ``ts`` convention."""

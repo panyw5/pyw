@@ -231,52 +231,6 @@ class TestKazhdanLusztigPolynomials:
 
         assert kl.Q(W.one(), W.long_element(), at_one=False) == -1
 
-    def test_affine_bounded_elements_include_translation_words(self):
-        from pyw.core.affine_lie_algebra import AffineLieAlgebra
-        from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
-
-        ala = AffineLieAlgebra(["A", 2, 1])
-        W = WeylGroup(["A", 2, 1])
-        kl = KazhdanLusztigPolynomials(W)
-
-        elements = kl.affine_bounded_elements(ala, translation_bounds={1: (-1, 1), 2: (0, 0)})
-        words = {tuple(w.reduced_word()) for w in elements}
-
-        assert () in words
-        assert (1,) in words
-        assert any(len(word) > 1 for word in words)
-
-    def test_affine_bounded_elements_accept_explicit_translations(self):
-        from pyw.core.affine_lie_algebra import AffineLieAlgebra
-        from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
-
-        ala = AffineLieAlgebra(["A", 2, 1])
-        W = WeylGroup(["A", 2, 1])
-        kl = KazhdanLusztigPolynomials(W)
-        beta = ala.affine_weyl_group()._finite_coroot_space.simple_roots()[1]
-
-        elements = kl.affine_bounded_elements(ala, translations=[0, beta, ala.affine_weyl_group().translation(beta)])
-        words = {tuple(w.reduced_word()) for w in elements}
-
-        assert () in words
-        assert any(len(word) > 1 for word in words)
-
-    def test_affine_bounded_elements_reject_conflicting_translation_inputs(self):
-        from pyw.core.affine_lie_algebra import AffineLieAlgebra
-        from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
-
-        ala = AffineLieAlgebra(["A", 2, 1])
-        W = WeylGroup(["A", 2, 1])
-        kl = KazhdanLusztigPolynomials(W)
-        beta = ala.affine_weyl_group()._finite_coroot_space.simple_roots()[1]
-
-        with pytest.raises(ValueError, match="translation_bounds or translations"):
-            kl.affine_bounded_elements(
-                ala,
-                translation_bounds={1: (0, 0)},
-                translations=[beta],
-            )
-
     def test_affine_bounded_interval_filters_candidates(self):
         from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
 
@@ -348,7 +302,12 @@ class TestKazhdanLusztigPolynomials:
         kl = KazhdanLusztigPolynomials(W)
         kl._coxeter3 = None
 
-        candidates = kl.affine_bounded_elements(ala, translation_bounds={1: (0, 0), 2: (0, 0)})
+        candidates = [
+            W.from_reduced_word(tuple(int(i) for i in element.word()))
+            for element in ala.affine_weyl_group().elements_as_semi_direct_product(
+                translation_bounds={1: (0, 0), 2: (0, 0)}
+            )
+        ]
         stabilizer = [W.one()]
 
         assert kl.affine_bounded_parabolic_Q_tilde(
@@ -368,7 +327,12 @@ class TestKazhdanLusztigPolynomials:
         kl = KazhdanLusztigPolynomials(W)
         kl._coxeter3 = None
 
-        candidates = kl.affine_bounded_elements(ala, translation_bounds={1: (0, 0), 2: (0, 0)})
+        candidates = [
+            W.from_reduced_word(tuple(int(i) for i in element.word()))
+            for element in ala.affine_weyl_group().elements_as_semi_direct_product(
+                translation_bounds={1: (0, 0), 2: (0, 0)}
+            )
+        ]
         stabilizer = [W.one()]
         s0 = W.simple_reflection(0)
 

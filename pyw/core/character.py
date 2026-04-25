@@ -29,18 +29,19 @@ class KLNumeratorTerm:
 class KazhdanLusztigData:
     algebra: Any
     lambda_hat: "AffineWeight"
-    rho_hat: "AffineWeight"
     Lambda_hat: "AffineWeight"
-    w_to_Lambda: Any
     w_to_lambda: Any
     order: int
-    translation_bounds: Optional[Dict[int, Tuple[int, int]]]
     translations: List[Any]
-    ambient_candidates: List[Any]
-    integral_case: bool
-    weyl_lambda_candidates: List[Any]
+    W_affine_as_words: List[Any]
+    quotient_weight_candidates: List[Any]
     stabilizer_candidates: List[Any]
     quotient_representatives: List[Any]
+
+    @property
+    def integral_case(self) -> bool:
+        labels = self.Lambda_hat.dynkin_labels()
+        return all(value in ZZ for value in labels.values())
 
     def apply(self, element: Any, weight: "AffineWeight") -> "AffineWeight":
         semidirect = self.algebra.affine_weyl_group()
@@ -48,14 +49,15 @@ class KazhdanLusztigData:
         return semidirect.from_word(word).action(weight)
 
     def quotient_weight(self, representative: Any) -> "AffineWeight":
-        return self.apply(representative, self.Lambda_hat + self.rho_hat) - self.rho_hat
+        rho_hat = self.algebra.affine_rho()
+        return self.apply(representative, self.Lambda_hat + rho_hat) - rho_hat
 
     def weyl_to_be_summed(self) -> List[Any]:
         from .bruhat import BruhatOrder
 
-        if not self.ambient_candidates:
+        if not self.W_affine_as_words:
             return []
-        bruhat = BruhatOrder(self.ambient_candidates[0].parent())
+        bruhat = BruhatOrder(self.W_affine_as_words[0].parent())
         lower = self.w_to_lambda
         result = []
         for w in self.quotient_representatives:
@@ -552,11 +554,6 @@ class KazhdanLusztigCharacter:
         raise ValueError("Failed to find dominant Lambda via affine simple reflections")
 
     @staticmethod
-    def _is_integral_affine_weight(weight: "AffineWeight") -> bool:
-        labels = weight.dynkin_labels()
-        return all(value in ZZ for value in labels.values())
-
-    @staticmethod
     def _apply_element_to_weight(
         algebra: "AffineLieAlgebra", element: Any, weight: "AffineWeight"
     ) -> "AffineWeight":
@@ -570,9 +567,9 @@ class KazhdanLusztigCharacter:
         algebra: "AffineLieAlgebra",
         Lambda_hat: "AffineWeight",
         *,
-        rho_hat: "AffineWeight",
         candidates: Iterable[Any],
     ) -> List[Any]:
+        rho_hat = algebra.affine_rho()
         by_weight: Dict[Tuple[Tuple[int, Any], ...], Any] = {}
         for w in candidates:
             image = cls._apply_element_to_weight(algebra, w, Lambda_hat + rho_hat) - rho_hat
@@ -627,38 +624,34 @@ class KazhdanLusztigCharacter:
         for element in W_affine:
             word = tuple(int(i) for i in element.word())
             W_affine_as_words[word] = self.kl.weyl_group.from_reduced_word(word)
-        ambient_candidates = sorted(
+        W_affine_as_words_sorted = sorted(
             W_affine_as_words.values(),
             key=lambda w: (int(w.length()), tuple(_element_word_list(w))),
         )
-        integral_case = self._is_integral_affine_weight(Lambda_hat)
-        weyl_lambda_candidates = list(ambient_candidates)
+        quotient_weight_candidates = list(W_affine_as_words_sorted)
+        # W^0_Λ
         stabilizer_candidates = self.kl.affine_stabilizer(
             Lambda_hat.to_sagemath(),
             rho_hat=rho_hat.to_sagemath(),
-            candidates=ambient_candidates,
+            candidates=W_affine_as_words_sorted,
             algebra=self.algebra,
         )
+        # W_Λ/W^0_Λ
         quotient_representatives = self._collect_quotient_representatives(
             self.algebra,
             Lambda_hat,
-            rho_hat=rho_hat,
-            candidates=weyl_lambda_candidates,
+            candidates=quotient_weight_candidates,
         )
 
         return KazhdanLusztigData(
             algebra=self.algebra,
             lambda_hat=lambda_hat,
-            rho_hat=rho_hat,
             Lambda_hat=Lambda_hat,
-            w_to_Lambda=w_to_Lambda,
             w_to_lambda=w_to_lambda,
             order=order,
-            translation_bounds=None,
-            translations=list(normalized_translations),
-            ambient_candidates=ambient_candidates,
-            integral_case=integral_case,
-            weyl_lambda_candidates=weyl_lambda_candidates,
+            translations=normalized_translations,
+            W_affine_as_words=W_affine_as_words_sorted,
+            quotient_weight_candidates=quotient_weight_candidates,
             stabilizer_candidates=stabilizer_candidates,
             quotient_representatives=quotient_representatives,
         )
@@ -681,7 +674,7 @@ class KazhdanLusztigCharacter:
             coefficient = self.kl.affine_bounded_parabolic_Q_tilde(
                 lower,
                 representative,
-                candidates=context.ambient_candidates,
+                candidates=context.W_affine_as_words,
                 stabilizer_candidates=context.stabilizer_candidates,
                 at_one=True,
             )

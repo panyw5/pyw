@@ -432,39 +432,6 @@ class KazhdanLusztigPolynomials:
 
         return result
 
-    def affine_bounded_elements(
-        self,
-        algebra: "AffineLieAlgebra",
-        *,
-        translation_bounds: Dict[int, Tuple[int, int]] | None = None,
-        translations: Iterable[Any] | None = None,
-        factor_order: str = "st",
-    ) -> List[Any]:
-        r"""Enumerate a bounded affine subset and coerce it into ``self.weyl_group``.
-
-        The old reference implementation built finite pieces and translations by
-        hand. In ``pyw`` we reuse ``AffineWeylGroupSemidirect`` to enumerate a
-        bounded subset of $\widehat W = W \ltimes Q^\vee$, then convert each
-        element back to the Sage affine Weyl group via its reduced word.
-        """
-        semidirect = algebra.affine_weyl_group()
-        bounded = semidirect.elements_as_semi_direct_product(
-            translation_bounds=translation_bounds,
-            translations=translations,
-            factor_order=factor_order,
-        )
-
-        result: List[Any] = []
-        seen: set[Tuple[int, ...]] = set()
-        for element in bounded:
-            word = tuple(int(i) for i in element.word())
-            if word in seen:
-                continue
-            seen.add(word)
-            result.append(self.weyl_group.from_reduced_word(word))
-
-        return sorted(result, key=lambda w: (int(w.length()), tuple(w.reduced_word())))
-
     def affine_bounded_interval(
         self,
         x: Any,

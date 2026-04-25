@@ -443,3 +443,20 @@ def test_semidirect_inverse_undoes_action():
     g_inv = g.inverse()
 
     assert g_inv.action(g.action(x)) == x
+
+
+@pytest.mark.sage
+def test_semidirect_bruhat_le_matches_sage_affine_group():
+    from pyw.core.affine_lie_algebra import AffineLieAlgebra
+
+    ala = AffineLieAlgebra(["A", 2, 1])
+    W = ala.affine_weyl_group()
+
+    x = W.simple_reflection(1)
+    y = W.simple_reflection(1) * W.simple_reflection(2)
+
+    assert x.bruhat_le(y) == bool(x.reduced_word().bruhat_le(y.reduced_word()))
+
+    # 支持 tuple/list 输入路径
+    y_word = tuple(int(i) for i in y.word())
+    assert x.bruhat_le(y_word) == bool(x.reduced_word().bruhat_le(y.reduced_word()))
