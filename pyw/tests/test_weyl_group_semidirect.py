@@ -42,7 +42,7 @@ def test_word_and_reduced_word_interfaces_for_simple_reflections(simple_index):
 
 @pytest.mark.sage
 @pytest.mark.parametrize(("coeff", "negative"), [(1, False), (-1, True)])
-def test_translation_affine_word_preserves_simple_coroot_sign_a4(coeff, negative):
+def test_translation_word_list_preserves_simple_coroot_sign_a4(coeff, negative):
     from pyw.core.affine_lie_algebra import AffineLieAlgebra
     from pyw.core.weyl_group import AffineWeylGroupSemidirect
 
@@ -52,8 +52,8 @@ def test_translation_affine_word_preserves_simple_coroot_sign_a4(coeff, negative
 
     element = W.translation(coeff * beta)
 
-    assert element.word() == W.simple_translation_affine_word(1, negative=negative)
-    assert element.word() != W.simple_translation_affine_word(1, negative=not negative)
+    assert element.word() == W.simple_translation_word_list(1, negative=negative)
+    assert element.word() != W.simple_translation_word_list(1, negative=not negative)
 
 
 @pytest.mark.sage
@@ -69,7 +69,7 @@ def test_word_translation_sign_matches_intended_translation_a4(coeff):
     element = W.translation(coeff * beta)
     opposite = W.translation(-coeff * beta)
 
-    assert element.word() == W.simple_translation_affine_word(1, negative=(coeff < 0))
+    assert element.word() == W.simple_translation_word_list(1, negative=(coeff < 0))
     assert element.word() != opposite.word()
 
 
@@ -298,7 +298,7 @@ def test_affine_weight_associated_reflection_method():
 
 
 @pytest.mark.sage
-def test_affine_plus_delta_reflection_word_uses_pyw_associated_reflection():
+def test_affine_plus_delta_reflection_word_list_uses_pyw_associated_reflection():
     from pyw.core.affine_lie_algebra import AffineLieAlgebra
 
     ala = AffineLieAlgebra(["A", 2, 1])
@@ -307,7 +307,7 @@ def test_affine_plus_delta_reflection_word_uses_pyw_associated_reflection():
     expected = ala.affine_simple_roots()[1].associated_reflection()
     expected = (ala.affine_simple_roots()[1] + ala.affine_delta()).associated_reflection()
 
-    assert W.affine_plus_delta_reflection_word(1) == expected
+    assert W.affine_plus_delta_reflection_word_list(1) == expected
 
 
 @pytest.mark.sage
@@ -360,7 +360,7 @@ def test_affine_semidirect_finite_part_returns_native_sage_element():
 
     finite_part = W.simple_reflection(1).finite_part
 
-    assert finite_part.parent() is W._W_weight
+    assert finite_part.parent() is W._finite_weyl_group
     assert finite_part.reduced_word() == [1]
 
 
@@ -397,7 +397,7 @@ def test_affine_weyl_elements_as_semi_direct_product_accepts_explicit_translatio
 
     elements = W.elements_as_semi_direct_product(translations=[beta, W.translation(beta), 0])
 
-    finite_size = len(list(W._W_weight))
+    finite_size = len(list(W._finite_weyl_group))
     assert len(elements) == 2 * finite_size
     assert elements[0].translation_vector == W._zero_beta
     assert elements[finite_size].translation_vector == beta

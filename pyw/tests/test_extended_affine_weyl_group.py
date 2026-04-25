@@ -116,7 +116,7 @@ def test_extended_affine_finite_part_returns_native_sage_element():
 
     finite_part = W_ext.simple_reflection(1).finite_part
 
-    assert finite_part.parent() is W_ext._W_weight
+    assert finite_part.parent() is W_ext._finite_weyl_group
     assert finite_part.reduced_word() == [1]
 
 
@@ -322,7 +322,7 @@ def test_extended_affine_weyl_elements_accept_explicit_translations():
         translations=[lam, W_ext.translation(lam), W_ext._zero_lambda]
     )
 
-    finite_size = len(list(W_ext._W_weight))
+    finite_size = len(list(W_ext._finite_weyl_group))
     assert len(elements) == 2 * finite_size
     assert elements[0].translation_vector == W_ext._zero_lambda
     assert elements[finite_size].translation_vector == lam
