@@ -62,7 +62,7 @@ class KazhdanLusztigData:
         for w in self.quotient_representatives:
             if bruhat.le(lower, w):
                 result.append(w)
-        return result
+        return sorted(result, key=lambda w: (int(w.length()), tuple(_element_word_list(w))))
 
 
 @dataclass
@@ -588,7 +588,50 @@ class KazhdanLusztigCharacter:
             current = by_weight.get(key)
             if current is None or int(w.length()) < int(current.length()):
                 by_weight[key] = w
-        return list(by_weight.values())
+        return sorted(by_weight.values(), key=lambda w: (int(w.length()), tuple(_element_word_list(w))))
+
+    def _build_W_affine_as_words_direct(
+        self,
+        normalized_translation_vectors: Iterable[Any],
+    ) -> List[Any]:
+        """Build KL Weyl elements directly from finite and translation words.
+
+        For each translation vector ``beta`` and each finite Weyl element ``u``,
+        construct the affine word as
+        ``u.reduced_word() + translation_word_list(beta)`` and map it into
+        ``self.kl.weyl_group`` via ``from_reduced_word``.
+        """
+        affine_weyl_group = self.algebra.affine_weyl_group()
+        finite_elts_sorted = list(affine_weyl_group._finite_weyl_group)
+
+        W_affine_as_words: Dict[Tuple[int, ...], Any] = {}
+        for beta in normalized_translation_vectors:
+            translation_word = tuple(int(i) for i in affine_weyl_group.translation_word_list(beta))
+            for finite_element in finite_elts_sorted:
+                finite_word = tuple(int(i) for i in finite_element.reduced_word())
+                word = finite_word + translation_word
+                W_affine_as_words[word] = self.kl.weyl_group.from_reduced_word(word)
+        return list(W_affine_as_words.values())
+
+    def _build_W_affine_as_words_via_semidirect(
+        self,
+        normalized_translations: Iterable[Any],
+    ) -> List[Any]:
+        """Legacy/reference builder through semidirect elements enumeration."""
+        affine_weyl_group = self.algebra.affine_weyl_group()
+        W_affine = affine_weyl_group.elements_as_semi_direct_product(
+            translations=normalized_translations,
+            factor_order="st",
+        )
+        W_affine_as_words: Dict[Tuple[int, ...], Any] = {}
+        for element in W_affine:
+            sage_element = element.reduced_word()
+            word = tuple(int(i) for i in sage_element.reduced_word())
+            if hasattr(sage_element, "parent") and sage_element.parent() == self.kl.weyl_group:
+                W_affine_as_words[word] = sage_element
+            else:
+                W_affine_as_words[word] = self.kl.weyl_group.from_reduced_word(word)
+        return list(W_affine_as_words.values())
 
     def prepare_data(
         self,
@@ -625,22 +668,30 @@ class KazhdanLusztigCharacter:
         normalized_translation_vectors = affine_weyl_group._translation_vectors_from_inputs(
             translations=translation_inputs,
         )
+
+        if translations is None:
+            # For auto-generated translation sets, prune vectors that cannot
+            # contribute to grades <= order. Keep explicit user-provided
+            # translation sets unchanged.
+            pruned_translation_vectors: list[Any] = []
+            for beta in normalized_translation_vectors:
+                translated = affine_weyl_group.translation(beta).action(dominant_weight)
+                resulting_grade = QQ(translated.grade) - QQ(rho_hat.grade)
+                if resulting_grade >= -QQ(order):
+                    pruned_translation_vectors.append(beta)
+            normalized_translation_vectors = pruned_translation_vectors
+
         normalized_translations = [affine_weyl_group.translation(beta) for beta in normalized_translation_vectors]
 
-        W_affine = affine_weyl_group.elements_as_semi_direct_product(
-            translations=normalized_translations,
-            factor_order="st",
+        W_affine_as_words_sorted = self._build_W_affine_as_words_via_semidirect(
+            normalized_translations,
         )
-        W_affine_as_words: Dict[Tuple[int, ...], Any] = {}
-        for element in W_affine:
-            word = tuple(int(i) for i in element.word())
-            W_affine_as_words[word] = self.kl.weyl_group.from_reduced_word(word)
-        W_affine_as_words_sorted = list(W_affine_as_words.values())
         # W_Λ^0
         stabilizer_candidates = self.kl.affine_stabilizer(
             Lambda_hat.to_sagemath(),
             rho_hat=rho_hat.to_sagemath(),
             candidates=W_affine_as_words_sorted,
+            algebra=self.algebra,
         )
         # W_Λ/W_Λ^0
         quotient_representatives = self._collect_quotient_representatives(
