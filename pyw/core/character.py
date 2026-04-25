@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from itertools import product
 from typing import TYPE_CHECKING, Any, Dict, Iterable, Iterator, List, Optional, Tuple
 
-from sage.all import Integer, QQ, RR, binomial, ceil, floor, matrix, vector
+from sage.all import Integer, QQ, binomial, matrix, vector
 from sage.all import ZZ
 
 if TYPE_CHECKING:
@@ -236,18 +236,6 @@ class KazhdanLusztigCharacter:
         self.kl = KazhdanLusztigPolynomials(algebra.affine_weyl_group_sage())
 
     @staticmethod
-    def _default_translation_bounds(weight: "AffineWeight", *, order: int) -> Dict[int, Tuple[int, int]]:
-        labels = weight.dynkin_labels()
-        finite_indices = [int(i) for i in labels.keys() if int(i) != 0]
-        bounds: Dict[int, Tuple[int, int]] = {}
-        for i in finite_indices:
-            label = labels.get(i, 0)
-            lower = -int(order)
-            upper = int(order + max(0, label))
-            bounds[i] = (lower, upper)
-        return bounds
-
-    @staticmethod
     def _ceil_sqrt_qq(value: Any) -> int:
         target = QQ(value)
         if target <= 0:
@@ -277,44 +265,7 @@ class KazhdanLusztigCharacter:
     ) -> List[Any]:
         semidirect = self.algebra.affine_weyl_group()
         idxs = [int(i) for i in semidirect._finite_coroot_space.index_set()]
-
-        if QQ(weight.level) <= 0:
-            raise ValueError(
-                "Exact translation selection requires positive level for Lambda_hat + rho_hat; "
-                "pass translation_bounds explicitly to use a manual bounded search"
-            )
-
         basis = semidirect._finite_coroot_space.simple_roots()
-        labels = weight.dynkin_labels()
-        linear = vector(QQ, [QQ(labels.get(i, 0)) for i in idxs])
-        gram = matrix(
-            QQ,
-            len(idxs),
-            len(idxs),
-            lambda r, c: QQ(basis[idxs[r]].to_ambient().inner_product(basis[idxs[c]].to_ambient())),
-        )
-        quadratic = (QQ(weight.level) / 2) * gram
-
-        if not quadratic.is_positive_definite():
-            raise ValueError(
-                "Exact translation selection requires a positive-definite quadratic form; "
-                "pass translation_bounds explicitly to use a manual bounded search"
-            )
-
-        inverse = quadratic.inverse()
-        center = inverse * linear / 2
-        radius_sq = QQ(order) + (center.dot_product(quadratic * center))
-
-        if radius_sq < 0:
-            return []
-
-        ranges: list[range] = []
-        for i, center_i in enumerate(center):
-            projection_sq = radius_sq * inverse[i, i]
-            bound = QQ(self._ceil_sqrt_qq(projection_sq))
-            lower = int(floor(-center_i - bound))
-            upper = int(ceil(-center_i + bound))
-            ranges.append(range(lower, upper + 1))
 
         if max_neg_shift is None:
             max_neg_shift_value = QQ(order) + QQ(weight.grade)
@@ -323,32 +274,253 @@ class KazhdanLusztigCharacter:
         if max_neg_shift_value < 0:
             return []
 
+        if QQ(weight.level) == 0:
+            raise ValueError("Translation enumeration by n-shift requires non-zero level")
+
+        linear_coeffs = [QQ(weight.dynkin_labels().get(i, 0)) for i in idxs]
+        gram = self._finite_coroot_gram_matrix(idxs)
+        radius = self._translation_coefficient_radius(
+            level=QQ(weight.level),
+            linear_coeffs=linear_coeffs,
+            gram=gram,
+            max_neg_shift=max_neg_shift_value,
+        )
+
+        ranges = [range(-radius, radius + 1) for _ in idxs]
+
         selected: dict[tuple[int, ...], Any] = {}
         for coeffs in product(*ranges):
+            neg_shift = self._minus_Delta_n(
+                level=QQ(weight.level),
+                linear_coeffs=linear_coeffs,
+                gram=gram,
+                coeffs=coeffs,
+            )
+            if neg_shift < 0 or neg_shift > max_neg_shift_value:
+                continue
+
             beta = semidirect._zero_beta
             for i, coeff in zip(idxs, coeffs):
                 if coeff:
                     beta += int(coeff) * basis[i]
-
-            neg_shift = self._translation_neg_shift(weight, beta)
-            if neg_shift < 0 or neg_shift > max_neg_shift_value:
-                continue
             selected[tuple(int(coeff) for coeff in coeffs)] = semidirect.translation(beta)
 
         return [selected[key] for key in sorted(selected.keys())]
 
+    @staticmethod
+    def _minus_Delta_n(
+        *,
+        level: Any,
+        linear_coeffs: List[Any],
+        gram: List[List[Any]],
+        coeffs: tuple[int, ...],
+    ) -> Any:
+        m = [QQ(c) for c in coeffs]
+        linear = sum(QQ(d) * mi for d, mi in zip(linear_coeffs, m))
+        quadratic = QQ(0)
+        for i, mi in enumerate(m):
+            for j, mj in enumerate(m):
+                quadratic += mi * QQ(gram[i][j]) * mj
+        return linear + QQ(level) * quadratic / QQ(2)
+
+    def _finite_coroot_gram_matrix(self, idxs: List[int]) -> List[List[Any]]:
+        semidirect = self.algebra.affine_weyl_group()
+        basis = semidirect._finite_coroot_space.simple_roots()
+        ambient = {i: basis[i].to_ambient() for i in idxs}
+        return [[QQ(ambient[i].inner_product(ambient[j])) for j in idxs] for i in idxs]
+
+    def _translation_coefficient_radius(
+        self,
+        *,
+        level: Any,
+        linear_coeffs: List[Any],
+        gram: List[List[Any]],
+        max_neg_shift: Any,
+    ) -> int:
+        k = QQ(level)
+        b = QQ(self._ceil_sqrt_qq(sum(QQ(d) * QQ(d) for d in linear_coeffs)))
+        # Rigorous lower bound on lambda_min(gram):
+        # lambda_min >= 1 / ||gram^{-1}||_2 >= 1 / ||gram^{-1}||_F.
+        G = matrix(QQ, gram)
+        G_inv = G.inverse()
+        frob_sq = sum(QQ(v) * QQ(v) for v in G_inv.list())
+        lam_lower = QQ(1) / QQ(self._ceil_sqrt_qq(frob_sq))
+
+        if lam_lower <= 0:
+            raise ValueError("Failed to obtain a positive coercive bound for translation enumeration")
+
+        abs_k = abs(k)
+        a = abs_k * lam_lower / QQ(2)
+        if a <= 0:
+            raise ValueError("Failed to derive a positive quadratic bound for translation enumeration")
+
+        if k > 0:
+            # If a r^2 - b r > max_neg_shift, then q(m) > max_neg_shift for ||m|| >= r.
+            disc = b * b + QQ(4) * a * QQ(max_neg_shift)
+            r_real = (b + QQ(self._ceil_sqrt_qq(disc))) / (QQ(2) * a)
+            return max(0, int(r_real) + 1)
+
+        # k < 0 case:
+        # q(m) <= b r - a r^2, so q(m) < 0 for r > b/a.
+        r_real = b / a
+        return max(0, int(r_real) + 1)
+
+    def _translations_by_n_shift_bnb(
+        self,
+        weight: "AffineWeight",
+        *,
+        order: int,
+        max_neg_shift: Optional[Any] = None,
+        return_stats: bool = False,
+    ) -> Any:
+        """备用枚举器：球约束 + 分支定界（不接入主流程）。"""
+        semidirect = self.algebra.affine_weyl_group()
+        idxs = [int(i) for i in semidirect._finite_coroot_space.index_set()]
+        basis = semidirect._finite_coroot_space.simple_roots()
+
+        if max_neg_shift is None:
+            max_neg_shift_value = QQ(order) + QQ(weight.grade)
+        else:
+            max_neg_shift_value = QQ(max_neg_shift)
+        if max_neg_shift_value < 0:
+            return ({"translations": [], "stats": {}} if return_stats else [])
+
+        level = QQ(weight.level)
+        if level == 0:
+            raise ValueError("Translation enumeration by n-shift requires non-zero level")
+
+        linear_coeffs = [QQ(weight.dynkin_labels().get(i, 0)) for i in idxs]
+        gram = self._finite_coroot_gram_matrix(idxs)
+        radius = self._translation_coefficient_radius(
+            level=level,
+            linear_coeffs=linear_coeffs,
+            gram=gram,
+            max_neg_shift=max_neg_shift_value,
+        )
+
+        n = len(idxs)
+        if n == 0:
+            t0 = semidirect.translation(semidirect._zero_beta)
+            return ({"translations": [t0], "stats": {"radius": 0}} if return_stats else [t0])
+
+        # 椭球中心（连续极小点）用于分支顺序优化。
+        center: list[QQ]
+        try:
+            G = matrix(QQ, gram)
+            d_vec = vector(QQ, linear_coeffs)
+            center_vec = -(G.solve_right(d_vec)) / level
+            center = [QQ(center_vec[i]) for i in range(n)]
+        except Exception:
+            center = [QQ(0) for _ in range(n)]
+
+        coeffs = [0 for _ in range(n)]
+        selected: dict[tuple[int, ...], Any] = {}
+
+        stats = {
+            "radius": int(radius),
+            "dimension": int(n),
+            "box_points": int((2 * int(radius) + 1) ** int(n)),
+            "visited_leaves": 0,
+            "pruned_branches": 0,
+            "accepted": 0,
+        }
+
+        def _partial_bounds(depth: int) -> tuple[Any, Any]:
+            fixed = list(range(depth))
+            rem = list(range(depth, n))
+
+            const = QQ(0)
+            for i in fixed:
+                const += linear_coeffs[i] * QQ(coeffs[i])
+            for i in fixed:
+                for j in fixed:
+                    const += level * QQ(gram[i][j]) * QQ(coeffs[i]) * QQ(coeffs[j]) / QQ(2)
+
+            if not rem:
+                return const, const
+
+            b_rem: list[QQ] = []
+            for i in rem:
+                b_i = linear_coeffs[i]
+                if fixed:
+                    b_i += level * sum(QQ(gram[i][j]) * QQ(coeffs[j]) for j in fixed)
+                b_rem.append(QQ(b_i))
+
+            R = QQ(radius)
+            lower = QQ(const)
+            upper = QQ(const)
+
+            for bi in b_rem:
+                delta = abs(bi) * R
+                lower -= delta
+                upper += delta
+
+            for a, i in enumerate(rem):
+                qii = level * QQ(gram[i][i]) / QQ(2)
+                term = qii * R * R
+                if term >= 0:
+                    upper += term
+                else:
+                    lower += term
+
+                for b, j in enumerate(rem):
+                    if b <= a:
+                        continue
+                    qij = level * QQ(gram[i][j])
+                    band = abs(qij) * R * R
+                    lower -= band
+                    upper += band
+
+            return lower, upper
+
+        def _ordered_values(i: int) -> list[int]:
+            vals = list(range(-radius, radius + 1))
+            c = center[i]
+            vals.sort(key=lambda x: (abs(QQ(x) - c), abs(x), x))
+            return vals
+
+        def _dfs(depth: int, prefix_norm_sq: int) -> None:
+            if prefix_norm_sq > radius * radius:
+                stats["pruned_branches"] += 1
+                return
+
+            low, high = _partial_bounds(depth)
+            if high < 0 or low > max_neg_shift_value:
+                stats["pruned_branches"] += 1
+                return
+
+            if depth == n:
+                stats["visited_leaves"] += 1
+                neg_shift = self._minus_Delta_n(
+                    level=level,
+                    linear_coeffs=linear_coeffs,
+                    gram=gram,
+                    coeffs=tuple(coeffs),
+                )
+                if QQ(0) <= neg_shift <= max_neg_shift_value:
+                    beta = semidirect._zero_beta
+                    for idx, c in zip(idxs, coeffs):
+                        if c:
+                            beta += int(c) * basis[idx]
+                    key = tuple(int(c) for c in coeffs)
+                    selected[key] = semidirect.translation(beta)
+                    stats["accepted"] += 1
+                return
+
+            for value in _ordered_values(depth):
+                coeffs[depth] = int(value)
+                _dfs(depth + 1, prefix_norm_sq + int(value) * int(value))
+            coeffs[depth] = 0
+
+        _dfs(0, 0)
+        out = [selected[key] for key in sorted(selected.keys())]
+        if return_stats:
+            return {"translations": out, "stats": stats}
+        return out
+
     def _translation_neg_shift(self, weight: "AffineWeight", beta: Any) -> Any:
         translated = self.algebra.affine_weyl_group().translation(beta).action(weight)
         return weight.grade - translated.grade
-
-    # NOTE: 这个函数完全没有必要，就是计算一个差值。
-    @staticmethod
-    def _legacy_translation_order_offset(
-        lambda_hat: "AffineWeight",
-        selected_weight: "AffineWeight",
-    ) -> int:
-        offset = QQ(selected_weight.grade) - QQ(lambda_hat.grade)
-        return max(0, int(offset))
 
     def _find_dominant_Lambda(
         self,
@@ -410,50 +582,54 @@ class KazhdanLusztigCharacter:
                 by_weight[key] = w
         return sorted(by_weight.values(), key=lambda w: (int(w.length()), tuple(_element_word_list(w))))
 
-    # NOTE: 移除 translation_bounds argument，KL 计算不用这个通道
-    def build_context(
+    def prepare_data(
         self,
         lambda_hat: "AffineWeight",
         *,
         order: int,
-        translation_bounds: Optional[Dict[int, Tuple[int, int]]] = None,
         translations: Optional[Iterable[Any]] = None,
     ) -> KazhdanLusztigData:
         rho_hat = self.algebra.affine_rho()
         Lambda_hat, w_to_Lambda = self._find_dominant_Lambda(lambda_hat)
         w_to_lambda = w_to_Lambda.inverse()
 
-        if translation_bounds is not None and translations is not None:
-            raise ValueError("Provide either translation_bounds or translations, not both")
+        # Λ + ρ = w.λ should be deominant
+        dominant_weight = Lambda_hat + rho_hat
 
-        selected_weight = Lambda_hat + rho_hat
-        # NOTE: translation_bounds 不需要了，selected_bounds 也不用了
-        selected_bounds = dict(translation_bounds) if translation_bounds is not None else None
-        translations = list(translations) if translations is not None else None
-        semidirect = self.algebra.affine_weyl_group()
+        # ``translations`` accepts mixed explicit inputs (translation elements, coroot vectors,
+        # or 0/None). Normalization happens in the affine Weyl group helper so the rest of the
+        # pipeline always sees canonical coroot-space vectors.
+        translation_inputs = list(translations) if translations is not None else None
+        affine_weyl_group = self.algebra.affine_weyl_group()
 
-        if translations is None and selected_bounds is None:
-            translation_order = order + self._legacy_translation_order_offset(
-                lambda_hat,
-                selected_weight,
+        if translation_inputs is None:
+            translation_order = order + max(
+                0,
+                int(QQ(dominant_weight.grade) - QQ(lambda_hat.grade)),
             )
-            max_neg_shift = QQ(order) + QQ(selected_weight.grade)
-            translations = self._translations_by_n_shift(
-                selected_weight,
+            max_neg_shift = QQ(order) + QQ(dominant_weight.grade)
+            translation_inputs = self._translations_by_n_shift(
+                dominant_weight,
                 order=translation_order,
                 max_neg_shift=max_neg_shift,
             )
 
-        normalized_translation_vectors = semidirect._translation_vectors_from_inputs(
-            translation_bounds=selected_bounds,
-            translations=translations,
+        normalized_translation_vectors = affine_weyl_group._translation_vectors_from_inputs(
+            translations=translation_inputs,
         )
-        normalized_translations = [semidirect.translation(beta) for beta in normalized_translation_vectors]
+        normalized_translations = [affine_weyl_group.translation(beta) for beta in normalized_translation_vectors]
 
-        ambient_candidates = self.kl.affine_bounded_elements(
-            self.algebra,
+        W_affine = affine_weyl_group.elements_as_semi_direct_product(
             translations=normalized_translations,
             factor_order="st",
+        )
+        W_affine_as_words: Dict[Tuple[int, ...], Any] = {}
+        for element in W_affine:
+            word = tuple(int(i) for i in element.word())
+            W_affine_as_words[word] = self.kl.weyl_group.from_reduced_word(word)
+        ambient_candidates = sorted(
+            W_affine_as_words.values(),
+            key=lambda w: (int(w.length()), tuple(_element_word_list(w))),
         )
         integral_case = self._is_integral_affine_weight(Lambda_hat)
         weyl_lambda_candidates = list(ambient_candidates)
@@ -478,7 +654,7 @@ class KazhdanLusztigCharacter:
             w_to_Lambda=w_to_Lambda,
             w_to_lambda=w_to_lambda,
             order=order,
-            translation_bounds=selected_bounds,
+            translation_bounds=None,
             translations=list(normalized_translations),
             ambient_candidates=ambient_candidates,
             integral_case=integral_case,
@@ -492,13 +668,11 @@ class KazhdanLusztigCharacter:
         lambda_hat: "AffineWeight",
         *,
         order: int,
-        translation_bounds: Optional[Dict[int, Tuple[int, int]]] = None,
         translations: Optional[Iterable[Any]] = None,
     ) -> list[Any]:
-        context = self.build_context(
+        context = self.prepare_data(
             lambda_hat,
             order=order,
-            translation_bounds=translation_bounds,
             translations=translations,
         )
         terms: list[KLNumeratorTerm] = []
@@ -528,14 +702,12 @@ class KazhdanLusztigCharacter:
         lambda_hat: "AffineWeight",
         *,
         order: int,
-        translation_bounds: Optional[Dict[int, Tuple[int, int]]] = None,
         translations: Optional[Iterable[Any]] = None,
     ) -> FormalCharacter:
         result = FormalCharacter({}, max_grade=order, algebra=self.algebra)
         for term in self.numerator_terms(
             lambda_hat,
             order=order,
-            translation_bounds=translation_bounds,
             translations=translations,
         ):
             verma = VermaCharacter(self.algebra, term.weight)

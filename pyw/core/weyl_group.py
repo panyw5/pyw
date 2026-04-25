@@ -546,6 +546,8 @@ class AffineWeylGroupSemidirect:
     def theta_coroot(self) -> Any:
         return self._theta_coroot
 
+    # obtain the t_β
+    # .translation(β).action(affine_weight)
     def translation(self, beta: Any) -> "AffineWeylGroupSemidirectElement":
         beta_cs = self._coerce_to_coroot_space(beta)
         return AffineWeylGroupSemidirectElement(self, self._W_weight.one(), beta_cs)
@@ -709,10 +711,33 @@ class AffineWeylGroupSemidirect:
             finite_elts, key=lambda w: (_sage_element_length(w), tuple(w.reduced_word()))
         )
 
-        translation_vectors = self._translation_vectors_from_inputs(
-            translation_bounds=translation_bounds,
-            translations=translations,
-        )
+        if translation_bounds is not None and translations is not None:
+            raise ValueError("Provide either translation_bounds or translations, not both")
+
+        if translations is not None:
+            translation_vectors = self._translation_vectors_from_inputs(
+                translations=translations,
+            )
+        else:
+            bounds = {} if translation_bounds is None else translation_bounds
+            idxs = list(self._finite_coroot_space.index_set())
+            ranges: list[range] = []
+            for i in idxs:
+                lo, hi = bounds.get(int(i), (0, 0))
+                ranges.append(range(int(lo), int(hi) + 1))
+
+            basis = self._finite_coroot_space.simple_roots()
+            generated_vectors: list[Any] = []
+            for coeffs in product(*ranges):
+                beta = self._zero_beta
+                for i, c in zip(idxs, coeffs):
+                    if c:
+                        beta += int(c) * basis[int(i)]
+                generated_vectors.append(beta)
+
+            translation_vectors = self._translation_vectors_from_inputs(
+                translations=generated_vectors,
+            )
 
         result: list[AffineWeylGroupSemidirectElement] = []
         for beta in translation_vectors:
@@ -731,30 +756,9 @@ class AffineWeylGroupSemidirect:
     def _translation_vectors_from_inputs(
         self,
         *,
-        translation_bounds: Mapping[int, tuple[int, int]] | None,
         translations: Iterable[Any] | None,
     ) -> list[Any]:
-        if translation_bounds is not None and translations is not None:
-            raise ValueError("Provide either translation_bounds or translations, not both")
-
-        if translations is not None:
-            vectors = [self._coerce_explicit_translation(beta) for beta in translations]
-        else:
-            bounds = {} if translation_bounds is None else translation_bounds
-            idxs = list(self._finite_coroot_space.index_set())
-            ranges: list[range] = []
-            for i in idxs:
-                lo, hi = bounds.get(int(i), (0, 0))
-                ranges.append(range(int(lo), int(hi) + 1))
-
-            basis = self._finite_coroot_space.simple_roots()
-            vectors = []
-            for coeffs in product(*ranges):
-                beta = self._zero_beta
-                for i, c in zip(idxs, coeffs):
-                    if c:
-                        beta += int(c) * basis[int(i)]
-                vectors.append(beta)
+        vectors = [] if translations is None else [self._coerce_explicit_translation(beta) for beta in translations]
 
         by_key: dict[tuple[Any, ...], Any] = {}
         for beta in vectors:
@@ -912,9 +916,11 @@ class AffineWeylGroupSemidirectElement:
         translation_word = self._group._translation_word(self._beta)
         return finite_word + translation_word
 
+    # NOTE: 移除函数套娃，.word() 代替 ._word_tuple()
     def word(self) -> tuple[int, ...]:
         return self._word_tuple()
 
+    # NOTE: self.reduced_word().reduced_word() 为什么 .reduce_word() 要施加两次？
     def reduced_word_list(self) -> list[int]:
         return [int(i) for i in self.reduced_word().reduced_word()]
 
@@ -1347,10 +1353,33 @@ class ExtendedAffineWeylGroup:
             finite_elts, key=lambda w: (_sage_element_length(w), tuple(w.reduced_word()))
         )
 
-        translation_vectors = self._translation_vectors_from_inputs(
-            translation_bounds=translation_bounds,
-            translations=translations,
-        )
+        if translation_bounds is not None and translations is not None:
+            raise ValueError("Provide either translation_bounds or translations, not both")
+
+        if translations is not None:
+            translation_vectors = self._translation_vectors_from_inputs(
+                translations=translations,
+            )
+        else:
+            bounds = {} if translation_bounds is None else translation_bounds
+            idxs = list(self._finite_coweight_lattice.index_set())
+            ranges: list[range] = []
+            for i in idxs:
+                lo, hi = bounds.get(int(i), (0, 0))
+                ranges.append(range(int(lo), int(hi) + 1))
+
+            basis = self._finite_coweight_lattice.fundamental_weights()
+            generated_vectors: list[Any] = []
+            for coeffs in product(*ranges):
+                lam = self._zero_lambda
+                for i, c in zip(idxs, coeffs):
+                    if c:
+                        lam += int(c) * basis[int(i)]
+                generated_vectors.append(lam)
+
+            translation_vectors = self._translation_vectors_from_inputs(
+                translations=generated_vectors,
+            )
 
         result: list[ExtendedAffineWeylGroupElement] = []
         for lam in translation_vectors:
@@ -1364,30 +1393,9 @@ class ExtendedAffineWeylGroup:
     def _translation_vectors_from_inputs(
         self,
         *,
-        translation_bounds: Mapping[int, tuple[int, int]] | None,
         translations: Iterable[Any] | None,
     ) -> list[Any]:
-        if translation_bounds is not None and translations is not None:
-            raise ValueError("Provide either translation_bounds or translations, not both")
-
-        if translations is not None:
-            vectors = [self._coerce_explicit_translation(lam) for lam in translations]
-        else:
-            bounds = {} if translation_bounds is None else translation_bounds
-            idxs = list(self._finite_coweight_lattice.index_set())
-            ranges: list[range] = []
-            for i in idxs:
-                lo, hi = bounds.get(int(i), (0, 0))
-                ranges.append(range(int(lo), int(hi) + 1))
-
-            basis = self._finite_coweight_lattice.fundamental_weights()
-            vectors = []
-            for coeffs in product(*ranges):
-                lam = self._zero_lambda
-                for i, c in zip(idxs, coeffs):
-                    if c:
-                        lam += int(c) * basis[int(i)]
-                vectors.append(lam)
+        vectors = [] if translations is None else [self._coerce_explicit_translation(lam) for lam in translations]
 
         by_key: dict[tuple[Any, ...], Any] = {}
         for lam in vectors:
