@@ -11,7 +11,7 @@ def test_kl_character_builds_context():
     lam = AffineWeight.affine_fundamental_weight(ala, 1)
     kl_char = KazhdanLusztigCharacter(ala)
 
-    context = kl_char.build_context(lam, order=1)
+    context = kl_char.prepare_data(lam, order=1)
 
     assert context.Lambda_hat.is_dominant()
     assert context.quotient_representatives
