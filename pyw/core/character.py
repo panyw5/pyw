@@ -34,7 +34,6 @@ class KazhdanLusztigData:
     order: int
     translations: List[Any]
     W_affine_as_words: List[Any]
-    quotient_weight_candidates: List[Any]
     stabilizer_candidates: List[Any]
     quotient_representatives: List[Any]
 
@@ -63,7 +62,7 @@ class KazhdanLusztigData:
         for w in self.quotient_representatives:
             if bruhat.le(lower, w):
                 result.append(w)
-        return sorted(result, key=lambda w: (int(w.length()), tuple(_element_word_list(w))))
+        return result
 
 
 @dataclass
@@ -287,6 +286,18 @@ class KazhdanLusztigCharacter:
             gram=gram,
             max_neg_shift=max_neg_shift_value,
         )
+
+        dimension = len(idxs)
+        box_points = (2 * int(radius) + 1) ** int(dimension)
+        # Large high-rank boxes become prohibitively expensive with direct
+        # product enumeration. Switch to exact branch-and-bound pruning.
+        if box_points > 2_000_000:
+            return self._translations_by_n_shift_bnb(
+                weight,
+                order=order,
+                max_neg_shift=max_neg_shift_value,
+                return_stats=False,
+            )
 
         ranges = [range(-radius, radius + 1) for _ in idxs]
 
@@ -577,7 +588,7 @@ class KazhdanLusztigCharacter:
             current = by_weight.get(key)
             if current is None or int(w.length()) < int(current.length()):
                 by_weight[key] = w
-        return sorted(by_weight.values(), key=lambda w: (int(w.length()), tuple(_element_word_list(w))))
+        return list(by_weight.values())
 
     def prepare_data(
         self,
@@ -624,23 +635,18 @@ class KazhdanLusztigCharacter:
         for element in W_affine:
             word = tuple(int(i) for i in element.word())
             W_affine_as_words[word] = self.kl.weyl_group.from_reduced_word(word)
-        W_affine_as_words_sorted = sorted(
-            W_affine_as_words.values(),
-            key=lambda w: (int(w.length()), tuple(_element_word_list(w))),
-        )
-        quotient_weight_candidates = list(W_affine_as_words_sorted)
-        # W^0_Λ
+        W_affine_as_words_sorted = list(W_affine_as_words.values())
+        # W_Λ^0
         stabilizer_candidates = self.kl.affine_stabilizer(
             Lambda_hat.to_sagemath(),
             rho_hat=rho_hat.to_sagemath(),
             candidates=W_affine_as_words_sorted,
-            algebra=self.algebra,
         )
-        # W_Λ/W^0_Λ
+        # W_Λ/W_Λ^0
         quotient_representatives = self._collect_quotient_representatives(
             self.algebra,
             Lambda_hat,
-            candidates=quotient_weight_candidates,
+            candidates=W_affine_as_words_sorted,
         )
 
         return KazhdanLusztigData(
@@ -651,7 +657,6 @@ class KazhdanLusztigCharacter:
             order=order,
             translations=normalized_translations,
             W_affine_as_words=W_affine_as_words_sorted,
-            quotient_weight_candidates=quotient_weight_candidates,
             stabilizer_candidates=stabilizer_candidates,
             quotient_representatives=quotient_representatives,
         )
