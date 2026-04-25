@@ -20,7 +20,6 @@ def test_d4_minus_2w0_context_matches_legacy_getlambda_and_bruhat_flow():
     context = kl_char.prepare_data(lam, order=0)
 
     assert context.Lambda_hat.to_legacy_expression() == "-Lambda[2] + delta"
-    assert _word_tuple(context.w_to_Lambda) == (0,)
     assert _word_tuple(context.w_to_lambda) == (0,)
 
     weyl_to_be_summed = context.weyl_to_be_summed()

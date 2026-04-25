@@ -30,10 +30,11 @@ def test_affine_kl_context_finds_dominant_conjugate_identity_case():
     kl_char = KazhdanLusztigCharacter(ala)
 
     context = kl_char.prepare_data(lambda_hat, order=1)
+    rho_hat = ala.affine_rho()
 
     assert context.Lambda_hat.is_dominant()
-    assert context.quotient_weight(context.w_to_Lambda) == context.Lambda_hat
-    assert context.apply(context.w_to_lambda, context.Lambda_hat + context.rho_hat) - context.rho_hat == context.lambda_hat
+    assert context.quotient_weight(context.w_to_lambda.inverse()) == context.Lambda_hat
+    assert context.apply(context.w_to_lambda, context.Lambda_hat + rho_hat) - rho_hat == context.lambda_hat
 
 
 @pytest.mark.sage
@@ -90,7 +91,6 @@ def test_affine_kl_context_defaults_to_exact_translation_selection():
 
     context = kl_char.prepare_data(lambda_hat, order=2)
 
-    assert context.translation_bounds is None
     assert len(context.translations) == 3
     assert context.translations[0].translation_vector == ala.affine_weyl_group()._zero_beta
     assert any(t.translation_vector == -beta for t in context.translations)
@@ -213,5 +213,38 @@ def test_affine_kl_context_stores_normalized_translation_set():
         translations=[W.translation(beta), beta, 0, beta],
     )
 
-    assert context.translation_bounds is None
     assert [t.translation_vector for t in context.translations] == [W._zero_beta, beta]
+
+
+def _word_tuple(element):
+    return tuple(int(i) for i in element.reduced_word())
+
+
+@pytest.mark.sage
+@pytest.mark.parametrize(
+    "cartan,index,n,order",
+    [
+        (["A", 2, 1], 0, 1, 1),
+        (["A", 2, 1], 1, -1, 1),
+        (["A", 3, 1], 0, 2, 1),
+        (["A", 3, 1], 1, -2, 1),
+        (["D", 4, 1], 0, -1, 0),
+        (["D", 4, 1], 1, 1, 0),
+    ],
+)
+def test_W_affine_as_words_direct_builder_matches_semidirect_builder(cartan, index, n, order):
+    from pyw.core.affine_lie_algebra import AffineLieAlgebra
+    from pyw.core.character import KazhdanLusztigCharacter
+
+    ala = AffineLieAlgebra(cartan)
+    kl_char = KazhdanLusztigCharacter(ala)
+    fw = ala.fundamental_weights()
+    lambda_hat = n * fw[index]
+
+    context = kl_char.prepare_data(lambda_hat, order=order)
+
+    normalized_translation_vectors = [t.translation_vector for t in context.translations]
+    direct = kl_char._build_W_affine_as_words_direct(normalized_translation_vectors)
+    legacy = kl_char._build_W_affine_as_words_via_semidirect(context.translations)
+
+    assert [_word_tuple(w) for w in direct] == [_word_tuple(w) for w in legacy]

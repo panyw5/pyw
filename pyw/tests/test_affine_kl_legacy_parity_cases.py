@@ -40,7 +40,7 @@ def test_affine_kl_context_translation_set_satisfies_exact_nshift_inequality(
     lam = coeff * fw[index]
 
     context = kl_char.prepare_data(lam, order=order)
-    selected_weight = context.Lambda_hat + context.rho_hat
+    selected_weight = context.Lambda_hat + ala.affine_rho()
     max_neg_shift = QQ(order) + QQ(selected_weight.grade)
 
     semidirect = ala.affine_weyl_group()
