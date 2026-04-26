@@ -66,26 +66,24 @@ class TestNondegenerateChecker:
         result = checker.is_nondegenerate(weight)
         assert isinstance(result, bool)
 
-    def test_check_specific_coroots(self):
-        """Test check_specific_coroots method."""
+    def test_has_nondegenerate_pairings_on_coroots(self):
         checker = NondegenerateChecker(["A", 2])
         ws = FractionalWeightSpace(["A", 2])
 
         weight = ws.create_fractional_weight({0: 1, 1: 0})
         coroots = list(checker.simple_coroots.values())
 
-        result = checker.check_specific_coroots(weight, coroots)
+        result = checker.has_nondegenerate_pairings_on_coroots(weight, coroots)
         assert isinstance(result, bool)
 
-    def test_compute_pairing(self):
-        """Test _compute_pairing method."""
+    def test_compute_weight_coroot_pairing(self):
         checker = NondegenerateChecker(["A", 2])
         ws = FractionalWeightSpace(["A", 2])
 
         weight = ws.create_fractional_weight({0: 1, 1: 0})
         coroot = list(checker.simple_coroots.values())[0]
 
-        pairing = checker._compute_pairing(weight, coroot)
+        pairing = checker.compute_weight_coroot_pairing(weight, coroot)
         assert pairing is not None
 
     def test_is_integer_with_integer(self):
@@ -121,7 +119,7 @@ class TestNondegenerateChecker:
         weight = ws.create_fractional_weight({0: 1, 1: 0})
         coroot = list(checker.simple_coroots.values())[0]
 
-        result = checker.is_integer_pairing(weight, coroot)
+        result = checker.has_integral_pairing(weight, coroot)
         assert isinstance(result, bool)
 
     def test_tuple_cartan_type(self):

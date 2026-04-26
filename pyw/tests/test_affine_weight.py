@@ -279,7 +279,7 @@ class TestRhoHat:
         ala = AffineLieAlgebra(["A", 2, 1])
         rho_hat = AffineWeight.rho_hat(ala)
 
-        assert rho_hat.level == ala.dual_coxeter_number()
+        assert rho_hat.level == ala.dual_coxeter_number
 
     def test_rho_hat_grade_is_zero(self):
         """Test that grade of ρ̂ is zero."""
@@ -324,6 +324,42 @@ class TestConversion:
         assert recovered == original
 
 
+class TestBasisTranslators:
+    """Test explicit basis translator helpers for affine weights and roots."""
+
+    def test_root_to_weight_and_back_roundtrip(self):
+        ala = AffineLieAlgebra(["A", 2, 1])
+        theta = ala._finite_root_system.root_lattice().highest_root()
+
+        theta_in_weight_basis = ala.root_to_weight(theta, finite=True)
+
+        assert theta_in_weight_basis == AffineWeight.theta_hat(ala).finite_part_in_fundamental_weight_basis()
+        assert ala.weight_to_root(theta_in_weight_basis, finite=True) == theta
+
+    def test_affine_weight_to_simple_root_basis(self):
+        ala = AffineLieAlgebra(["A", 2, 1])
+        Lambda_hat_1 = AffineWeight.affine_fundamental_weight(ala, 1)
+
+        finite_part, level, grade = Lambda_hat_1.to_simple_root_basis()
+        alpha = ala._finite_root_system.root_space().simple_roots()
+
+        expected = QQ(2) / QQ(3) * alpha[1] + QQ(1) / QQ(3) * alpha[2]
+
+        assert finite_part == expected
+        assert level == 1
+        assert grade == 0
+
+    def test_affine_root_to_simple_root_basis(self):
+        ala = AffineLieAlgebra(["A", 2, 1])
+        alpha_hat_0 = AffineWeight.affine_simple_root(ala, 0)
+
+        finite_part, level, grade = alpha_hat_0.to_simple_root_basis()
+
+        assert finite_part == -ala._finite_root_system.root_lattice().highest_root()
+        assert level == 0
+        assert grade == 1
+
+
 class TestFromDynkinLabels:
     """Test construction from Dynkin labels."""
 
@@ -346,6 +382,27 @@ class TestFromDynkinLabels:
 
         for i in [0, 1, 2]:
             assert recovered[i] == original_labels[i]
+
+
+class TestDynkinLabelAccessor:
+    """Test single Dynkin label accessor."""
+
+    def test_dynkin_label_returns_single_label(self):
+        """Test dynkin_label(i) matches dynkin_labels()[i]."""
+        ala = AffineLieAlgebra(["A", 2, 1])
+        w = from_dynkin_labels(ala, {0: 1, 1: 1, 2: 0})
+
+        assert w.dynkin_label(0) == 1
+        assert w.dynkin_label(1) == 1
+        assert w.dynkin_label(2) == 0
+
+    def test_dynkin_label_invalid_index_raises(self):
+        """Test dynkin_label raises on an invalid affine node."""
+        ala = AffineLieAlgebra(["A", 2, 1])
+        w = AffineWeight.affine_fundamental_weight(ala, 1)
+
+        with pytest.raises(KeyError, match="Invalid affine Dynkin node index"):
+            w.dynkin_label(3)
 
 
 class TestSimpleReflection:
@@ -463,7 +520,7 @@ class TestDiFrancescoFormulas:
     def test_null_root_relation(self):
         """Test Σ a_i ̂α_i = δ (Di Francesco null root relation)."""
         ala = AffineLieAlgebra(["A", 2, 1])
-        marks = ala.get_marks()
+        marks = ala.marks
 
         alpha_hats = {i: AffineWeight.affine_simple_root(ala, i) for i in marks.keys()}
 
@@ -481,7 +538,7 @@ class TestDiFrancescoFormulas:
         for cartan_type in [["A", 2, 1], ["B", 2, 1], ["G", 2, 1]]:
             ala = AffineLieAlgebra(cartan_type)
             rho_hat = AffineWeight.rho_hat(ala)
-            g = ala.dual_coxeter_number()
+            g = ala.dual_coxeter_number
 
             assert rho_hat.level == g, f"Failed for {cartan_type}"
 
@@ -526,7 +583,7 @@ class TestAffineLieAlgebraConvenienceMethods:
         ala = AffineLieAlgebra(["A", 2, 1])
         rho = ala.affine_rho()
 
-        assert rho.level == ala.dual_coxeter_number()
+        assert rho.level == ala.dual_coxeter_number
         assert rho.grade == 0
 
     def test_affine_weight_factory(self):

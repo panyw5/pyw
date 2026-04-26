@@ -6,7 +6,7 @@ import pytest
 
 from sage.all import RootSystem
 
-from pyw.core.root_system import AffineRootSystem
+from pyw.core.root_system import AffineRootSystem, RootWithReflection
 
 
 class TestAffineRootSystem:
@@ -96,3 +96,14 @@ class TestAffineRootSystem:
         s = repr(rs)
         assert "AffineRootSystem" in s
         assert "A" in s
+
+    def test_wrap_root_adds_associated_reflection(self):
+        rs = AffineRootSystem(["A", 2])
+        alpha = rs.root_system.root_lattice().positive_roots()[1]
+
+        wrapped = rs.wrap_root(alpha)
+
+        assert isinstance(wrapped, RootWithReflection)
+        assert wrapped.associated_reflection() == tuple(
+            int(i) for i in alpha.associated_reflection()
+        )

@@ -271,6 +271,34 @@ class TestLeviAndRegularity:
         assert levi.contains_element(f0) is True
         assert levi.is_regular(f0) is False
 
+    def test_sl2_triplet_regular_in_standard_levi_zero(self):
+        zero = nilpotent_orbits("A", 3)[0]
+        triple = zero.sl2_triplet_regular_in_standard_levi()
+        assert triple.verify() is True
+        assert triple.fprime == 0
+        assert triple.eprime == 0
+        assert triple.hprime == 0
+        assert triple.xprime == 0
+        assert triple.standard_levi_indices == []
+
+    def test_sl2_triplet_regular_in_standard_levi_minimal_A3(self):
+        orb = next(o for o in nilpotent_orbits("A", 3) if o.partition == [2, 1, 1])
+        triple = orb.sl2_triplet_regular_in_standard_levi()
+        levi = LeviSubalgebra(lie_type=orb.lie_type, roots=triple.standard_levi_roots)
+        assert triple.verify() is True
+        assert triple.standard_levi_indices == [2]
+        assert levi.contains_element(triple.fprime) is True
+        assert levi.is_regular(triple.fprime) is True
+
+    def test_sl2_triplet_regular_in_standard_levi_principal_A3(self):
+        orb = nilpotent_orbits("A", 3)[-1]
+        triple = orb.sl2_triplet_regular_in_standard_levi()
+        levi = LeviSubalgebra(lie_type=orb.lie_type, roots=triple.standard_levi_roots)
+        assert triple.verify() is True
+        assert triple.standard_levi_indices == [1, 2, 3]
+        assert levi.contains_element(triple.fprime) is True
+        assert levi.is_regular(triple.fprime) is True
+
 
 # =========================================================================
 # Table output test

@@ -18,6 +18,7 @@ import pytest
 from pyw.embedding.sl2_triple import (
     SL2Triple,
     RootSpaceGrading,
+    StandardLeviSL2Triple,
     weighted_dynkin_diagram,
     root_space_grading,
     compute_sl2_triple,
@@ -292,6 +293,13 @@ class TestNilpotentOrbitMethods:
             for j in rg.grades:
                 if j > 0:
                     assert rg.dimension(j) == rg.dimension(-j)
+
+    def test_sl2_triplet_regular_in_standard_levi_method(self):
+        orb = next(o for o in nilpotent_orbits("C", 2) if o.partition == [2, 1, 1])
+        triple = orb.sl2_triplet_regular_in_standard_levi()
+        assert isinstance(triple, StandardLeviSL2Triple)
+        assert triple.verify()
+        assert triple.standard_levi_indices == [2]
 
 
 # =========================================================================

@@ -10,8 +10,6 @@ from sage.all import RootSystem, QQ
 from pyw.core.affine_lie_algebra import (
     AffineLieAlgebra,
     scalar_product,
-    get_marks,
-    get_comarks,
     weyl_reflection,
 )
 from pyw.core.affine_weight import AffineWeight
@@ -50,47 +48,59 @@ class TestMarksAndComarks:
     def test_marks_a2_affine(self):
         """Test marks for A₂^(1) - all marks are 1."""
         ala = AffineLieAlgebra(["A", 2, 1])
-        marks = ala.get_marks()
+        marks = ala.marks
         assert marks == {0: 1, 1: 1, 2: 1}
 
     def test_marks_g2_affine(self):
         """Test marks for G₂^(1) - marks are (1, 3, 1)."""
         ala = AffineLieAlgebra(["G", 2, 1])
-        marks = ala.get_marks()
-        assert marks == {0: 1, 1: 3, 2: 1}
+        marks = ala.marks
+        assert marks == {0: 1, 1: 3, 2: 2}
 
     def test_marks_f4_affine(self):
         """Test marks for F₄^(1) - marks are (1, 1, 1, 2, 2)."""
         ala = AffineLieAlgebra(["F", 4, 1])
-        marks = ala.get_marks()
-        assert marks == {0: 1, 1: 1, 2: 1, 3: 2, 4: 2}
+        marks = ala.marks
+        assert marks == {0: 1, 1: 2, 2: 3, 3: 4, 4: 2}
 
     def test_comarks_a2_affine(self):
         """Test comarks for A₂^(1) - all comarks are 1 (simply-laced)."""
         ala = AffineLieAlgebra(["A", 2, 1])
-        comarks = ala.get_comarks()
+        comarks = ala.comarks
         assert comarks == {0: 1, 1: 1, 2: 1}
 
     def test_comarks_c2_affine(self):
         """Test comarks for C₂^(1) - differ from marks (non-simply-laced)."""
         ala = AffineLieAlgebra(["C", 2, 1])
-        marks = ala.get_marks()
-        comarks = ala.get_comarks()
+        marks = ala.marks
+        comarks = ala.comarks
         # For C₂, marks: (1, 2, 1), comarks: (1, 1, 1)
         assert marks == {0: 1, 1: 2, 2: 1}
         assert comarks == {0: 1, 1: 1, 2: 1}
 
+    def test_marks_and_comarks_properties(self):
+        """Test cached marks/comarks properties mirror the methods."""
+        ala = AffineLieAlgebra(["A", 2, 1])
+        assert ala.marks == {0: 1, 1: 1, 2: 1}
+        assert ala.comarks == {0: 1, 1: 1, 2: 1}
+
     def test_dual_coxeter_number(self):
         """Test dual Coxeter number g^∨ = Σ a_i^∨."""
         # A₂: g^∨ = 1 + 1 + 1 = 3
-        assert AffineLieAlgebra(["A", 2, 1]).dual_coxeter_number() == 3
+        assert AffineLieAlgebra(["A", 2, 1]).dual_coxeter_number == 3
 
         # B₂: g^∨ = 1 + 2 + 1 = 4 (B₂ dual is C₂)
         # Actually B₂ has g^∨ = 3
-        assert AffineLieAlgebra(["B", 2, 1]).dual_coxeter_number() == 3
+        assert AffineLieAlgebra(["B", 2, 1]).dual_coxeter_number == 3
 
         # G₂: g^∨ = 1 + 3 + 1 = 5? No, G₂ has g^∨ = 4
-        assert AffineLieAlgebra(["G", 2, 1]).dual_coxeter_number() == 4
+        assert AffineLieAlgebra(["G", 2, 1]).dual_coxeter_number == 4
+
+    def test_coxeter_number_property(self):
+        """Test Coxeter number property for the underlying finite type."""
+        assert AffineLieAlgebra(["A", 2, 1]).coxeter_number == 3
+        assert AffineLieAlgebra(["B", 2, 1]).coxeter_number == 4
+        assert AffineLieAlgebra(["G", 2, 1]).coxeter_number == 6
 
 
 class TestScalarProduct:
@@ -101,13 +111,13 @@ class TestScalarProduct:
         ala = AffineLieAlgebra(["A", 2])
         Lambda = ala.fundamental_weights()
 
-        # (Λ₁, Λ₁) = 1/2 for A₂
+        # (Λ₁, Λ₁) = 2/3 for A₂
         result = ala.scalar_product(Lambda[1], Lambda[1])
-        assert result == QQ(1, 2)
+        assert result == QQ(2) / QQ(3)
 
-        # (Λ₁, Λ₂) = -1/2 for A₂
+        # (Λ₁, Λ₂) = 1/3 for A₂
         result = ala.scalar_product(Lambda[1], Lambda[2])
-        assert result == QQ(-1, 2)
+        assert result == QQ(1) / QQ(3)
 
     def test_affine_scalar_product(self):
         """Test affine scalar product (̂λ, ̂μ) = (λ, μ) + k_λ n_μ + k_μ n_λ."""
@@ -220,12 +230,13 @@ class TestTranslation:
         # Create AffineWeight (0; 1; 0)
         w = AffineWeight(ala, zero, level=1, grade=0)
 
-        # |0|² = 0, |α^∨|² = 2 for simply-laced
-        # n correction = (0 - 2) / 2 = -1
+        # In the current weight-space normalization used by this module,
+        # α₁^∨ is represented by Λ₁, whose squared norm is 2/3 for A₂.
+        # Therefore n correction = (0 - 2/3) / 2 = -1/3.
         result = ala.translation(alpha_vee, w)
 
-        # New n should be -1
-        assert result.grade == -1
+        # New n should be -1/3
+        assert result.grade == -QQ(1) / QQ(3)
 
 
 class TestSpecialElements:
@@ -242,24 +253,47 @@ class TestSpecialElements:
         # Check that finite part is zero
         assert delta.finite_part.is_zero()
 
-    def test_theta(self):
-        """Test highest root θ for A₂ is α₁ + α₂."""
+    def test_theta_hat(self):
+        """Test affine highest root θ̂ = (θ; 0; 0)."""
         ala = AffineLieAlgebra(["A", 2, 1])
-        theta = ala.theta()
-        alpha = ala.simple_roots()
+        theta_hat = ala.theta_hat()
+        expected = ala.finite_lie_algebra.theta()
+        assert isinstance(theta_hat, AffineWeight)
+        assert theta_hat.level == 0
+        assert theta_hat.grade == 0
+        assert theta_hat.finite_part == expected
 
-        # For A₂, θ = α₁ + α₂
-        expected = alpha[1] + alpha[2]
-        assert theta == expected
+    def test_finite_lie_algebra_theta(self):
+        """Test finite_lie_algebra.theta() gives the finite highest root θ."""
+        ala = AffineLieAlgebra(["A", 2, 1])
+        theta = ala.finite_lie_algebra.theta()
+        alpha = ala.finite_lie_algebra.simple_roots()
+
+        # For finite A₂, θ = α₁ + α₂
+        assert theta == alpha[1] + alpha[2]
+
+    def test_theta_unavailable_for_affine(self):
+        """Affine Lie algebra should not expose finite θ directly."""
+        ala = AffineLieAlgebra(["A", 2, 1])
+        with pytest.raises(ValueError, match="theta\(\).*theta_hat\(\)"):
+            ala.theta()
 
     def test_alpha_0(self):
         """Test α₀ = -θ + δ."""
         ala = AffineLieAlgebra(["A", 2, 1])
         alpha_0 = ala.alpha_0()
-        theta = ala.theta()
+        theta = ala.theta_hat().finite_part
 
         # α₀ = -θ (as finite root)
         assert alpha_0 == -theta
+
+    def test_finite_lie_algebra_rho(self):
+        """Test finite_lie_algebra.rho() returns finite Weyl vector ρ."""
+        ala = AffineLieAlgebra(["A", 2, 1])
+        rho = ala.finite_lie_algebra.rho()
+        finite_ws = ala._finite_root_system.weight_space()
+        Lambda = finite_ws.fundamental_weights()
+        assert rho == Lambda[1] + Lambda[2]
 
     def test_rho_hat(self):
         """Test affine Weyl vector ρ̂ = [1, 1, ..., 1]."""
@@ -381,19 +415,64 @@ class TestFiniteLieAlgebra:
         assert roots_affine == [-r for r in pos]
         assert len(roots_affine) == 3
 
+    def test_dim_for_finite_lie_algebra(self):
+        """Dimension should match rank + number of roots."""
+        g = AffineLieAlgebra(["A", 2])
+        assert g.rank == 2
+        assert g.num_positive_roots == 3
+        assert g.num_negative_roots == 3
+        assert g.num_roots == 6
+        assert g.dim == 8
+
+    def test_dim_via_finite_lie_algebra_property(self):
+        """Affine finite_lie_algebra should expose the same dimension API."""
+        ala = AffineLieAlgebra(["D", 4, 1])
+        g = ala.finite_lie_algebra
+        assert g.is_finite
+        assert g.rank == 4
+        assert g.num_positive_roots == 12
+        assert g.num_negative_roots == 12
+        assert g.num_roots == 24
+        assert g.dim == 28
+
+    def test_affine_dim_means_underlying_finite_dimension(self):
+        """Affine types expose the underlying finite Lie algebra dimension."""
+        ala = AffineLieAlgebra(["A", 2, 1])
+        assert ala.dim == ala.finite_lie_algebra.dim == 8
+
+    def test_affine_and_finite_share_common_invariant_properties(self):
+        """finite_lie_algebra exposes the same common invariant properties directly."""
+        ala = AffineLieAlgebra(["D", 4, 1])
+        g = ala.finite_lie_algebra
+
+        assert ala.rank == 4
+        assert ala.dual_coxeter_number == 6
+        assert ala.coxeter_number == 6
+        assert ala.dim == 28
+
+        assert g.rank == 4
+        assert g.dual_coxeter_number == 6
+        assert g.coxeter_number == 6
+        assert g.dim == 28
+        assert g.num_positive_roots == 12
+        assert g.num_negative_roots == 12
+        assert g.num_roots == 24
+
+
+class TestSageAffineWeylGroupHelpers:
+    def test_affine_weyl_group_sage_accepts_custom_prefix(self):
+        ala = AffineLieAlgebra(["A", 2, 1])
+
+        default_group = ala.affine_weyl_group_sage()
+        custom_group = ala.affine_weyl_group_sage(prefix="x")
+
+        assert str(default_group.simple_reflection(1)).startswith("w")
+        assert str(custom_group.simple_reflection(1)).startswith("x")
+        assert ala.affine_weyl_group_sage(prefix="x") is custom_group
+
 
 class TestConvenienceFunctions:
     """Test module-level convenience functions."""
-
-    def test_get_marks_function(self):
-        """Test get_marks convenience function."""
-        marks = get_marks(["A", 2, 1])
-        assert marks == {0: 1, 1: 1, 2: 1}
-
-    def test_get_comarks_function(self):
-        """Test get_comarks convenience function."""
-        comarks = get_comarks(["A", 2, 1])
-        assert comarks == {0: 1, 1: 1, 2: 1}
 
     def test_weyl_reflection_function(self):
         """Test weyl_reflection convenience function."""
@@ -422,7 +501,7 @@ class TestDiFrancescoFormulas:
 
         # Get the Cartan matrix to verify the Dynkin labels of simple roots
         # For Ŝu(2): α₀ = [2, -2], α₁ = [-2, 2]
-        cm = ala.cartan_matrix()
+        cm = ala.cartan_matrix
 
         # Verify the reflection s₀ acts correctly on Λ₀
         # s₀(Λ₀) should give -Λ₀ + 2Λ₁ for Ŝu(2)

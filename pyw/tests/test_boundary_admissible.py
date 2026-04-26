@@ -31,7 +31,7 @@ class TestBoundaryAdmissibleWeights:
     def test_compute_sl2_weights(self):
         """Test computation of sl(2) admissible weights at k = -4/3."""
         baw = BoundaryAdmissibleWeights(["A", 1, 1], p=2, u=3)
-        weights = baw.compute_sl2_admissible_weights()
+        weights = baw.sl2_admissible_weight_data()
 
         # Should have exactly 3 weights
         assert len(weights) == 3
@@ -54,7 +54,7 @@ class TestBoundaryAdmissibleWeights:
     def test_conformal_dimensions(self):
         """Test conformal dimension computation."""
         baw = BoundaryAdmissibleWeights(["A", 1, 1], p=2, u=3)
-        dimensions = baw.compute_conformal_dimensions()
+        dimensions = baw.sl2_conformal_dimensions()
 
         expected = [Fraction(0, 1), Fraction(2, 3), Fraction(5, 3)]
         assert dimensions == expected
@@ -91,7 +91,7 @@ class TestSl2BoundaryCases:
     def test_sl2_neg_4_3_weights(self):
         """Verify sl(2) weights at k = -4/3 match expected values."""
         baw = BoundaryAdmissibleWeights(["A", 1, 1], p=2, u=3)
-        weights = baw.compute_sl2_admissible_weights()
+        weights = baw.sl2_admissible_weight_data()
 
         # Expected weights: (m, a0, a1)
         expected = [
@@ -108,7 +108,7 @@ class TestSl2BoundaryCases:
     def test_sl2_neg_4_3_dimensions(self):
         """Verify sl(2) conformal dimensions at k = -4/3."""
         baw = BoundaryAdmissibleWeights(["A", 1, 1], p=2, u=3)
-        dimensions = baw.compute_conformal_dimensions()
+        dimensions = baw.sl2_conformal_dimensions()
 
         expected = [Fraction(0, 1), Fraction(2, 3), Fraction(5, 3)]
         assert dimensions == expected
@@ -119,5 +119,5 @@ class TestSl2BoundaryCases:
         baw = BoundaryAdmissibleWeights(["A", 1, 1], p=2, u=5)
         assert baw.level == Fraction(-8, 5)
 
-        dimensions = baw.compute_conformal_dimensions()
+        dimensions = baw.sl2_conformal_dimensions()
         assert len(dimensions) == 5  # u = 5 weights

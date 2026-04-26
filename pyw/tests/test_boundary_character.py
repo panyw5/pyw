@@ -544,34 +544,6 @@ class TestKLvsProductFormula:
     For boundary levels, both methods should give the same result.
     """
 
-    @pytest.mark.skip(reason="Requires full KL implementation")
-    def test_sl2_u3_kl_vs_product(self):
-        """
-        Compare KL character with product formula for sl₂ at k = -4/3.
-
-        This test verifies that the KacWakimotoCharacter class produces
-        results consistent with the explicit product formula.
-        """
-        from pyw.algorithms.kac_wakimoto_character import KacWakimotoCharacter
-        from pyw.core.affine_lie_algebra import AffineLieAlgebra
-        from pyw.fractional.level import FractionalLevel
-
-        # Setup
-        ala = AffineLieAlgebra(["A", 1, 1])
-        level = FractionalLevel(["A", 1, 1], p=2, u=3)  # k = -2 + 2/3 = -4/3
-
-        kw = KacWakimotoCharacter(ala, level)
-
-        # Get vacuum weight
-        Lambda_0 = ala.fundamental_weights()[0]
-        vacuum_weight = level.level * Lambda_0
-
-        # Compute character via KL
-        kl_char = kw.character(vacuum_weight, max_grade=5)
-
-        # The leading coefficient should be 1
-        assert kl_char[0] == 1, f"KL vacuum character leading term = {kl_char[0]}"
-
 
 # =============================================================================
 # Integration tests with pyw modules

@@ -235,6 +235,7 @@ class KazhdanLusztigCharacter:
 
         self.algebra = algebra
         self.kl = KazhdanLusztigPolynomials(algebra.affine_weyl_group_sage())
+        self._finite_affine_elements_cache: Optional[List[Any]] = None
 
     @staticmethod
     def _ceil_sqrt_qq(value: Any) -> int:
@@ -565,9 +566,31 @@ class KazhdanLusztigCharacter:
         raise ValueError("Failed to find dominant Lambda via affine simple reflections")
 
     @staticmethod
+    def _to_affine_sage_domain_weight(
+        algebra: "AffineLieAlgebra",
+        weight: "AffineWeight",
+    ) -> Any:
+        """Coerce AffineWeight to the affine Weyl group's native action domain."""
+        sage_weight = weight.to_sagemath()
+        group = algebra.affine_weyl_group_sage()
+        domain = group.domain()
+        coords = list(sage_weight.to_vector()) + [weight.grade]
+        return domain.from_vector(vector(QQ, coords))
+
+    @staticmethod
     def _apply_element_to_weight(
         algebra: "AffineLieAlgebra", element: Any, weight: "AffineWeight"
     ) -> "AffineWeight":
+        from .affine_weight import AffineWeight
+
+        # Fast path: candidates are typically Sage affine Weyl elements already.
+        try:
+            domain_weight = KazhdanLusztigCharacter._to_affine_sage_domain_weight(algebra, weight)
+            return AffineWeight.from_sagemath(algebra, element.action(domain_weight))
+        except Exception:
+            pass
+
+        # Fallback path for generic element types.
         semidirect = algebra.affine_weyl_group()
         word = tuple(_element_word_list(element))
         return semidirect.from_word(word).action(weight)
@@ -580,38 +603,118 @@ class KazhdanLusztigCharacter:
         *,
         candidates: Iterable[Any],
     ) -> List[Any]:
+        from .affine_weight import AffineWeight
+
         rho_hat = algebra.affine_rho()
+        target = Lambda_hat + rho_hat
+        target_domain = cls._to_affine_sage_domain_weight(algebra, target)
         by_weight: Dict[Tuple[Tuple[int, Any], ...], Any] = {}
         for w in candidates:
-            image = cls._apply_element_to_weight(algebra, w, Lambda_hat + rho_hat) - rho_hat
+            try:
+                acted = w.action(target_domain)
+                image = AffineWeight.from_sagemath(algebra, acted) - rho_hat
+            except Exception:
+                image = cls._apply_element_to_weight(algebra, w, target) - rho_hat
             key = tuple(sorted(image.dynkin_labels().items())) + ((-1, image.grade),)
             current = by_weight.get(key)
             if current is None or int(w.length()) < int(current.length()):
                 by_weight[key] = w
         return sorted(by_weight.values(), key=lambda w: (int(w.length()), tuple(_element_word_list(w))))
 
+    @classmethod
+    def _collect_stabilizer_and_quotient_representatives(
+        cls,
+        algebra: "AffineLieAlgebra",
+        Lambda_hat: "AffineWeight",
+        *,
+        candidates: Iterable[Any],
+    ) -> Tuple[List[Any], List[Any]]:
+        """Collect stabilizer candidates and quotient representatives in one pass.
+
+        This preserves the previous semantics while avoiding duplicated scans of
+        the same bounded affine candidate set.
+        """
+        rho_hat = algebra.affine_rho()
+        target = Lambda_hat + rho_hat
+        target_domain = cls._to_affine_sage_domain_weight(algebra, target)
+
+        by_weight: Dict[Any, Any] = {}
+        stabilizer: List[Any] = []
+
+        for w in candidates:
+            try:
+                acted = w.action(target_domain)
+                if acted == target_domain:
+                    stabilizer.append(w)
+
+                # Fast key path: avoid expensive AffineWeight conversion on each
+                # bounded affine candidate.
+                key = tuple(acted.to_vector())
+            except Exception:
+                image = cls._apply_element_to_weight(algebra, w, target) - rho_hat
+                if image == Lambda_hat:
+                    stabilizer.append(w)
+                key = tuple(sorted(image.dynkin_labels().items())) + ((-1, image.grade),)
+
+            current = by_weight.get(key)
+            if current is None or int(w.length()) < int(current.length()):
+                by_weight[key] = w
+
+        if stabilizer:
+            identity = stabilizer[0].parent().one()
+        elif by_weight:
+            identity = next(iter(by_weight.values())).parent().one()
+        else:
+            identity = algebra.affine_weyl_group_sage().one()
+
+        identity_word = tuple(_element_word_list(identity))
+        if all(tuple(_element_word_list(w)) != identity_word for w in stabilizer):
+            stabilizer.append(identity)
+
+        stabilizer_sorted = sorted(
+            stabilizer,
+            key=lambda w: (int(w.length()), tuple(_element_word_list(w))),
+        )
+        quotient_sorted = sorted(
+            by_weight.values(),
+            key=lambda w: (int(w.length()), tuple(_element_word_list(w))),
+        )
+        return stabilizer_sorted, quotient_sorted
+
     def _build_W_affine_as_words_direct(
         self,
         normalized_translation_vectors: Iterable[Any],
     ) -> List[Any]:
-        """Build KL Weyl elements directly from finite and translation words.
+        """Build KL Weyl candidates via finite-affine cache × translation multiply.
 
-        For each translation vector ``beta`` and each finite Weyl element ``u``,
-        construct the affine word as
-        ``u.reduced_word() + translation_word_list(beta)`` and map it into
-        ``self.kl.weyl_group`` via ``from_reduced_word``.
+        1) Convert each finite Weyl element once into the affine Sage group.
+        2) Convert each translation vector once into an affine Sage element.
+        3) Form candidates by multiplication ``u_aff * t_beta``.
+
+        This avoids repeated semidirect ``word()/reduced_word()`` extraction on
+        every candidate and is substantially faster for large finite groups.
         """
         affine_weyl_group = self.algebra.affine_weyl_group()
-        finite_elts_sorted = list(affine_weyl_group._finite_weyl_group)
+        affine_sage_group = self.algebra.affine_weyl_group_sage()
 
-        W_affine_as_words: Dict[Tuple[int, ...], Any] = {}
+        if self._finite_affine_elements_cache is None:
+            finite_words = [
+                tuple(int(i) for i in w.reduced_word())
+                for w in list(affine_weyl_group._finite_weyl_group)
+            ]
+            self._finite_affine_elements_cache = [
+                affine_sage_group.from_reduced_word(list(word))
+                for word in finite_words
+            ]
+
+        candidates: List[Any] = []
         for beta in normalized_translation_vectors:
             translation_word = tuple(int(i) for i in affine_weyl_group.translation_word_list(beta))
-            for finite_element in finite_elts_sorted:
-                finite_word = tuple(int(i) for i in finite_element.reduced_word())
-                word = finite_word + translation_word
-                W_affine_as_words[word] = self.kl.weyl_group.from_reduced_word(word)
-        return list(W_affine_as_words.values())
+            translation_affine = affine_sage_group.from_reduced_word(list(translation_word))
+            for finite_affine in self._finite_affine_elements_cache:
+                candidates.append(finite_affine * translation_affine)
+
+        return candidates
 
     def _build_W_affine_as_words_via_semidirect(
         self,
@@ -683,21 +786,16 @@ class KazhdanLusztigCharacter:
 
         normalized_translations = [affine_weyl_group.translation(beta) for beta in normalized_translation_vectors]
 
-        W_affine_as_words_sorted = self._build_W_affine_as_words_via_semidirect(
-            normalized_translations,
+        W_affine_as_words_sorted = self._build_W_affine_as_words_direct(
+            normalized_translation_vectors,
         )
-        # W_Λ^0
-        stabilizer_candidates = self.kl.affine_stabilizer(
-            Lambda_hat.to_sagemath(),
-            rho_hat=rho_hat.to_sagemath(),
-            candidates=W_affine_as_words_sorted,
-            algebra=self.algebra,
-        )
-        # W_Λ/W_Λ^0
-        quotient_representatives = self._collect_quotient_representatives(
-            self.algebra,
-            Lambda_hat,
-            candidates=W_affine_as_words_sorted,
+        # W_Λ^0 and W_Λ/W_Λ^0 (single candidate scan).
+        stabilizer_candidates, quotient_representatives = (
+            self._collect_stabilizer_and_quotient_representatives(
+                self.algebra,
+                Lambda_hat,
+                candidates=W_affine_as_words_sorted,
+            )
         )
 
         return KazhdanLusztigData(

@@ -36,31 +36,28 @@ class TestPrincipalAdmissibleWeight:
         assert paw.weight_space is not None
         assert paw.root_system is not None
 
-    def test_construct_set_returns_list(self):
-        """Test construct_set returns a list of weights."""
+    def test_construct_principal_weights_returns_list(self):
         level = FractionalLevel(["A", 2, 1], p=4, u=3)
         wg = WeylGroup(["A", 2, 1])
         y = wg.one()
 
         paw = PrincipalAdmissibleWeight(level, y)
-        weights = paw.construct_set(max_fundamental_coeff=2)
+        weights = paw.construct_principal_weights(max_fundamental_coeff=2)
 
         assert isinstance(weights, list)
 
-    def test_construct_set_small_bound(self):
-        """Test construct_set with small bound."""
+    def test_construct_principal_weights_small_bound(self):
         level = FractionalLevel(["A", 2, 1], p=4, u=3)
         wg = WeylGroup(["A", 2, 1])
         y = wg.one()
 
         paw = PrincipalAdmissibleWeight(level, y)
-        weights = paw.construct_set(max_fundamental_coeff=1)
+        weights = paw.construct_principal_weights(max_fundamental_coeff=1)
 
         # With small bound, should get a small list
         assert len(weights) >= 0
 
-    def test_apply_dot_action(self):
-        """Test apply_dot_action method."""
+    def test_apply_y_dot_action(self):
         level = FractionalLevel(["A", 2, 1], p=4, u=3)
         wg = WeylGroup(["A", 2, 1])
         y = wg.one()
@@ -72,7 +69,7 @@ class TestPrincipalAdmissibleWeight:
         Lambda = ws.fundamental_weights()
         test_weight = Lambda[1]
 
-        result = paw.apply_dot_action(test_weight)
+        result = paw.apply_y_dot_action(test_weight)
         assert result is not None
 
     def test_is_principal_admissible(self):
