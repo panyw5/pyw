@@ -1,0 +1,66 @@
+{
+  "id": "04-24-list-translations-by-nshift",
+  "name": "04-24-list-translations-by-nshift",
+  "title": "List affine translations by bounded n-shift",
+  "description": "Derive the Dynkin-label/component inequalities for bounded translation n-shift and implement a strict, efficient enumerator for all valid finite coroot translations.",
+  "status": "pending",
+  "dev_type": "backend",
+  "scope": null,
+  "priority": "P1",
+  "creator": "lelouch",
+  "assignee": "lelouch",
+  "createdAt": "2026-04-24",
+  "completedAt": null,
+  "branch": "task/04-24-list-translations-by-nshift",
+  "base_branch": "main",
+  "worktree_path": null,
+  "current_phase": 0,
+  "next_action": [
+    {
+      "phase": 0,
+      "action": "start"
+    },
+    {
+      "phase": 1,
+      "action": "implement"
+    },
+    {
+      "phase": 2,
+      "action": "check"
+    },
+    {
+      "phase": 3,
+      "action": "finish"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [
+    {
+      "name": "Rewrite 0 ≤ -Δn ≤ order into explicit constraints on finite coroot components or Dynkin labels",
+      "status": "pending"
+    },
+    {
+      "name": "Implement a complete and efficient enumerator for all valid α^∨ under the bounded n-shift inequality",
+      "status": "pending"
+    },
+    {
+      "name": "Deprecate or remove legacy finite-box brute-force path (_translations_by_n_shift) after parity checks",
+      "status": "pending"
+    },
+    {
+      "name": "Add targeted mathematical and unit tests for correctness, completeness, and performance sanity",
+      "status": "pending"
+    }
+  ],
+  "relatedFiles": [
+    "pyw/core/kazhdan_lusztig.py",
+    "pyw/core/affine_kl.py",
+    "pyw/core/character.py",
+    "pyw/tests/test_affine_kl_context.py",
+    "pyw/tests/test_affine_kl_character.py",
+    ".trellis/tasks/04-24-list-translations-by-nshift/prd.md"
+  ],
+  "notes": "Initialized from PRD on 2026-04-24. This task replaces finite-box brute-force translation enumeration with a mathematically bounded and complete method driven by n-shift inequality constraints.",
+  "package": null
+}

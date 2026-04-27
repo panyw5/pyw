@@ -624,3 +624,42 @@ Completed Phase 2a: grade-wise BRST blocks via ghost Fock multiplicity model, de
 ### Next Steps
 
 - None - task complete
+
+
+## Session 15: D6 level -4 KL pyw-only diagnosis
+
+**Date**: 2026-04-27
+**Task**: 04-25-D6-level-(-4)
+
+### Summary
+
+只使用 `pyw` 当前实现继续推进 `(\widehat{D}_6)_{-4}`、`\hat\lambda=-4\hat\omega_0` 的 Kazhdan-Lusztig character 计算，不再依赖旧的 `refs/Kazhdan-Lusztig/Algebra.py` 结果。对 `KazhdanLusztigCharacter` 主链路做了多轮局部优化，并完成 pyw-only 性能诊断。
+
+关键结论有两点：
+- `KazhdanLusztigCharacter._translations_by_n_shift(...)` 经增量上下界优化后，从约 45 秒降到约 4-5 秒，translation 阶段已不再是主瓶颈。
+- 当前真正阻塞在 `prepare_data(...)` 内部的 candidate / quotient representative 爆炸。D6 例子上，`order=0` 时 `prepare_data≈1153s`、`candidates=161280`、`quotient_representatives=69120`；`order=1` 时 `prepare_data≈2679s`、`candidates=259200`、`quotient_representatives=120960`。因此当前 pyw 主线仍不足以实际产出 PRD 要求的 `q^0=1, q^1=66`。
+
+另外，曾用 `IntegrableModuleCharacter(-4*fw[0]).character(1)` 做过一次旁证，得到 `q0=2, q1=0`，已确认这不是本题应使用的对象，不能作为答案。之后诊断全部收回到 `KazhdanLusztigCharacter`。
+
+### Main Changes
+
+- 优化 `pyw/core/character.py` 中 translation branch-and-bound 枚举器：把 `_partial_bounds` 的重复全量重算改成增量上下界维护。
+- 调整 `pyw/core/character.py` 中 KL candidate / stabilizer / quotient representative 相关流程，减少重复扫描并保留兼容接口。
+- 优化 `pyw/core/kazhdan_lusztig.py` 中 bounded interval 获取方式：优先取精确 Bruhat interval，再与 candidate 集求交。
+- 新增 `pyw/tests/test_affine_kl_d6_level_minus4.py`，固定 D6 任务的基本上下文与 translation 枚举一致性。
+
+### Testing
+
+- `sage -python -m pytest pyw/tests/test_affine_kl_d6_level_minus4.py pyw/tests/test_affine_kl_context.py pyw/tests/test_affine_kl_character.py pyw/tests/test_affine_kl_d4_legacy_alignment.py pyw/tests/test_kazhdan_lusztig.py -q --no-cov`
+  - **64 passed**
+- `python3 -m compileall pyw/core/character.py pyw/core/kazhdan_lusztig.py pyw/tests/test_affine_kl_d6_level_minus4.py`
+  - **passed**
+
+### Status
+
+[~] **In Progress**
+
+### Next Steps
+
+- 继续压 `prepare_data(...)` 中的 candidate / quotient representative 爆炸，避免为 D6 `order=1` 生成 12 万级 quotient representatives。
+- 目标不再是 translation，而是减少 `W_affine_as_words` / `quotient_representatives` 规模，使 `KazhdanLusztigCharacter.character(..., order=1)` 真正可跑并验证 `q^0=1, q^1=66`。

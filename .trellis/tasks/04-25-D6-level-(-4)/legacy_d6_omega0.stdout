@@ -1,0 +1,22 @@
+start
+>>> Initialing Alg object <<<
+	>>> Getting simple translations <<<
+	>>> Getting finite Weyl group <<<
+		>>> WLoad = False. Generating finite Weyl group.
+	>>> Took 1199.46142578125s
+	>>> self.WFinite is set
+>>> Initialization complete <<<
+llambda -4*Lambda[0]
+>>> Computing Kazhdan-Lusztig numerator.
+>>> Creating Lambda.
+Finding Λ for generic λ
+Traceback (most recent call last):
+  File "/Users/lelouch/pyw/.trellis/tasks/04-25-D6-level-(-4)/run_legacy_d6_omega0.sage", line 28, in <module>
+    numerator = alg.Kazhdan_Lusztig_numerator(llambda, order)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/lelouch/pyw/refs/Kazhdan-Lusztig/Algebra.py", line 710, in CharacterNum
+    self.Lambda = self.GetLambda(llambda)
+                  ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/lelouch/pyw/refs/Kazhdan-Lusztig/Algebra.py", line 680, in GetLambda
+    raise Exception("No Lambda found: increase the size of Weyl group")
+Exception: No Lambda found: increase the size of Weyl group

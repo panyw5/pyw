@@ -7,7 +7,7 @@ Naming of variables, methods and properties should be self-explanatory, easy to 
 - **CONSISTENCY**: Naming of variables pointing to the same concept should be **consistent** across the codebase
 - **STANDARD MATH**: Use standard mathematical notation: `W_hat` or `W_aff` for $\widehat W$, `omega_hat` for $\widehat \omega$
 
-Use **underscores** to separate words in variable names
+- Use **PascalCase** for class names, and **lowercase_with_underscores** (snake_case) for variables, methods and properties.
 
 
 ## DO and DONT examples:

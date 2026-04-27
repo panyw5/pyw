@@ -1,0 +1,61 @@
+{
+  "id": "04-25-D6-level-(-4)",
+  "name": "04-25-D6-level-(-4)",
+  "title": "Compute (D6^)_{-4} character via Kazhdan-Lusztig",
+  "description": "For affine Lie algebra (D6^) at level -4 with lambda_hat = -4 omega_hat_0, compute the character using Kazhdan-Lusztig method and validate low-order constraints.",
+  "status": "in_progress",
+  "dev_type": "backend",
+  "scope": null,
+  "priority": "P1",
+  "creator": "lelouch",
+  "assignee": "lelouch",
+  "createdAt": "2026-04-25",
+  "completedAt": null,
+  "branch": "task/04-25-D6-level-(-4)",
+  "base_branch": "main",
+  "worktree_path": null,
+  "current_phase": 1,
+  "next_action": [
+    {
+      "phase": 0,
+      "action": "start"
+    },
+    {
+      "phase": 1,
+      "action": "implement"
+    },
+    {
+      "phase": 2,
+      "action": "check"
+    },
+    {
+      "phase": 3,
+      "action": "finish"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [
+    {
+      "name": "Set up (D6^)_{-4} affine KL context for lambda_hat = -4 omega_hat_0",
+      "status": "pending"
+    },
+    {
+      "name": "Compute character terms and verify leading constraints from PRD",
+      "status": "pending"
+    },
+    {
+      "name": "Add/adjust tests for q^0 and q^1 coefficient checks (including 66 states at q^1)",
+      "status": "pending"
+    }
+  ],
+  "relatedFiles": [
+    ".trellis/tasks/04-25-D6-level-(-4)/prd.md",
+    "pyw/core/affine_kl.py",
+    "pyw/core/character.py",
+    "pyw/core/kazhdan_lusztig.py",
+    "pyw/tests/test_affine_kl_character.py",
+    "examples/verify_pyw.py"
+  ],
+  "notes": "Initialized from PRD on 2026-04-25. Required facts: character starts with 1; q-term coefficient must match D6 adjoint character with 66 states."
+}
