@@ -1268,7 +1268,7 @@ class KazhdanLusztigCharacter:
             )
         return terms
 
-    def character(
+    def formal_character(
         self,
         lambda_hat: "AffineWeight",
         *,
@@ -1276,6 +1276,14 @@ class KazhdanLusztigCharacter:
         translations: Optional[Iterable[Any]] = None,
         manual_translations: Optional[Iterable[Any]] = None,
     ) -> FormalCharacter:
+        """Compute character as Verma module linear combination.
+        
+        Returns a FormalCharacter representing the KL formula result:
+        ch(L(λ)) = Σ_w Q̃_{w_λ,w}(1) · ch(M(w·(Λ+ρ)-ρ))
+        
+        This is the direct output of the Kazhdan-Lusztig formula, useful for
+        theoretical analysis.
+        """
         result = FormalCharacter({}, max_grade=order, algebra=self.algebra)
         for term in self.numerator_terms(
             lambda_hat,
@@ -1287,7 +1295,7 @@ class KazhdanLusztigCharacter:
             result = result + term.coefficient * verma.character(max_grade=order)
         return result.truncate(order)
 
-    def character_as_weight_space(
+    def character(
         self,
         lambda_hat: "AffineWeight",
         *,

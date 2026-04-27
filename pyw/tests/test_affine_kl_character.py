@@ -43,7 +43,7 @@ def test_kl_character_returns_formal_character():
     lam = AffineWeight.affine_fundamental_weight(ala, 1)
     kl_char = KazhdanLusztigCharacter(ala)
 
-    ch = kl_char.character(lam, order=1)
+    ch = kl_char.formal_character(lam, order=1)
 
     assert isinstance(ch, FormalCharacter)
     assert ch.max_grade == 1

@@ -2,7 +2,7 @@ import pytest
 
 
 @pytest.mark.sage
-def test_kl_character_as_weight_space_returns_symbolic_expression():
+def test_kl_character_returns_symbolic_expression():
     from sage.all import SR, var
 
     from pyw.core.affine_lie_algebra import AffineLieAlgebra
@@ -13,7 +13,7 @@ def test_kl_character_as_weight_space_returns_symbolic_expression():
     lam = AffineWeight.affine_fundamental_weight(ala, 0)
     kl_char = KazhdanLusztigCharacter(ala)
 
-    result = kl_char.character_as_weight_space(lam, order=1)
+    result = kl_char.character(lam, order=1)
 
     assert result in SR
     q = var("q")
@@ -21,7 +21,7 @@ def test_kl_character_as_weight_space_returns_symbolic_expression():
 
 
 @pytest.mark.sage
-def test_kl_character_as_weight_space_matches_integrable_module_character():
+def test_kl_character_matches_integrable_module_character():
     from sage.all import var
 
     from pyw.core.affine_lie_algebra import AffineLieAlgebra
@@ -37,7 +37,7 @@ def test_kl_character_as_weight_space_matches_integrable_module_character():
     q = var("q")
 
     for order in range(4):
-        kl_result = kl_char.character_as_weight_space(lam, order=order)
+        kl_result = kl_char.character(lam, order=order)
         int_result = int_char.character(order)
 
         for grade in range(order + 1):
@@ -47,7 +47,7 @@ def test_kl_character_as_weight_space_matches_integrable_module_character():
 
 
 @pytest.mark.sage
-def test_kl_character_as_weight_space_preserves_a2_q_grading():
+def test_kl_character_preserves_a2_q_grading():
     from sage.all import SR, var
 
     from pyw.core.affine_lie_algebra import AffineLieAlgebra
@@ -62,7 +62,7 @@ def test_kl_character_as_weight_space_preserves_a2_q_grading():
     z1 = var("z1")
     z2 = var("z2")
 
-    result = kl_char.character_as_weight_space(lam, order=3)
+    result = kl_char.character(lam, order=3)
 
     expected = SR(1)
     expected += (z1 * z2 + z1**2 / z2 + z2**2 / z1 + z1 / z2**2 + z2 / z1**2 + 1 / (z1 * z2) + 2) * q
@@ -87,7 +87,7 @@ def test_kl_character_as_weight_space_preserves_a2_q_grading():
 
 
 @pytest.mark.sage
-def test_kl_character_as_weight_space_accepts_manual_translations():
+def test_kl_character_accepts_manual_translations():
     from pyw.core.affine_lie_algebra import AffineLieAlgebra
     from pyw.core.affine_weight import AffineWeight
     from pyw.core.character import KazhdanLusztigCharacter
@@ -96,13 +96,13 @@ def test_kl_character_as_weight_space_accepts_manual_translations():
     lam = AffineWeight.affine_fundamental_weight(ala, 0)
     kl_char = KazhdanLusztigCharacter(ala)
 
-    result = kl_char.character_as_weight_space(lam, order=0, manual_translations=[0])
+    result = kl_char.character(lam, order=0, manual_translations=[0])
 
     assert result != 0
 
 
 @pytest.mark.sage
-def test_kl_character_as_weight_space_differs_from_verma_character():
+def test_kl_formal_character_differs_from_character():
     from sage.all import var
 
     from pyw.core.affine_lie_algebra import AffineLieAlgebra
@@ -117,13 +117,13 @@ def test_kl_character_as_weight_space_differs_from_verma_character():
     z1 = var("z1")
     z2 = var("z2")
 
-    verma_result = kl_char.character(lam, order=3)
-    ws_result = kl_char.character_as_weight_space(lam, order=3)
+    formal_result = kl_char.formal_character(lam, order=3)
+    ws_result = kl_char.character(lam, order=3)
 
     for grade in range(4):
-        verma_coeff = verma_result[grade]
+        formal_coeff = formal_result[grade]
         ws_coeff = ws_result.coefficient(q, grade)
 
         if grade > 0:
             ws_dim = ws_coeff.subs({z1: 1, z2: 1})
-            assert verma_coeff != ws_dim
+            assert formal_coeff != ws_dim
