@@ -10,9 +10,9 @@ def test_integrable_module_character_accepts_affine_weight_input():
     ala = AffineLieAlgebra(["A", 1, 1])
     lam = AffineWeight.affine_fundamental_weight(ala, 0)
 
-    rep = IntegrableModuleCharacter(lam)
+    rep = IntegrableModuleCharacter(ala)
 
-    assert rep.highest_weight() == lam.to_sagemath(extended=False)
+    assert rep.dominant_maximal_weights(lam) == [lam.to_sagemath(extended=False)]
 
 
 @pytest.mark.sage
@@ -38,10 +38,10 @@ def test_integrable_module_character_strings_and_maximal_weights():
 
     ala = AffineLieAlgebra(["A", 1, 1])
     lam = AffineWeight.affine_fundamental_weight(ala, 0)
-    rep = IntegrableModuleCharacter(lam)
+    rep = IntegrableModuleCharacter(ala)
 
-    dmax = rep.dominant_maximal_weights()
-    strings = rep.strings(3)
+    dmax = rep.dominant_maximal_weights(lam)
+    strings = rep.strings(lam, 3)
 
     assert dmax
     assert all(weight in strings for weight in dmax)
@@ -56,10 +56,10 @@ def test_integrable_module_character_depth_must_be_positive():
 
     ala = AffineLieAlgebra(["A", 1, 1])
     lam = AffineWeight.affine_fundamental_weight(ala, 0)
-    rep = IntegrableModuleCharacter(lam)
+    rep = IntegrableModuleCharacter(ala)
 
     with pytest.raises(ValueError, match="positive integer"):
-        rep.strings(0)
+        rep.strings(lam, 0)
 
 
 @pytest.mark.sage
@@ -72,10 +72,10 @@ def test_integrable_module_character_returns_truncated_q_series():
 
     ala = AffineLieAlgebra(["A", 1, 1])
     lam = AffineWeight.affine_fundamental_weight(ala, 0)
-    rep = IntegrableModuleCharacter(lam)
+    rep = IntegrableModuleCharacter(ala)
 
     q = var("q")
-    character = rep.character(1)
+    character = rep.character(lam, 1)
 
     assert character != 0
     assert character.coefficient(q, 0) != 0
@@ -90,7 +90,8 @@ def test_integrable_module_character_preserves_a2_q_grading_regression():
     from pyw.core.character import IntegrableModuleCharacter
 
     ala = AffineLieAlgebra(["A", 2, 1])
-    rep = IntegrableModuleCharacter(ala.fundamental_weights()[0])
+    rep = IntegrableModuleCharacter(ala)
+    highest_weight = ala.fundamental_weights()[0]
 
     q = var("q")
     z1 = var("z1")
@@ -115,7 +116,7 @@ def test_integrable_module_character_preserves_a2_q_grading_regression():
         + 10
     ) * q**3
 
-    character = rep.character(3)
+    character = rep.character(highest_weight, 3)
 
     assert character == expected
     assert character.coefficient(q, 0) == 1
@@ -130,11 +131,12 @@ def test_integrable_module_character_preserves_a2_strings_prefix_to_depth_six():
     from pyw.core.character import IntegrableModuleCharacter
 
     ala = AffineLieAlgebra(["A", 2, 1])
-    rep = IntegrableModuleCharacter(ala.fundamental_weights()[0])
+    rep = IntegrableModuleCharacter(ala)
+    highest_weight = ala.fundamental_weights()[0]
 
-    strings = rep.strings(6)
+    strings = rep.strings(highest_weight, 6)
 
-    assert strings == {rep.highest_weight(): [1, 2, 5, 10, 20, 36]}
+    assert strings == {highest_weight.to_sagemath(extended=False): [1, 2, 5, 10, 20, 36]}
 
 
 @pytest.mark.sage
@@ -145,7 +147,8 @@ def test_integrable_module_character_preserves_a2_q_grading_to_order_five_regres
     from pyw.core.character import IntegrableModuleCharacter
 
     ala = AffineLieAlgebra(["A", 2, 1])
-    rep = IntegrableModuleCharacter(ala.fundamental_weights()[0])
+    rep = IntegrableModuleCharacter(ala)
+    highest_weight = ala.fundamental_weights()[0]
 
     q = var("q")
     z1 = var("z1")
@@ -212,24 +215,23 @@ def test_integrable_module_character_preserves_a2_q_grading_to_order_five_regres
         + 36
     ) * q**5
 
-    character = rep.character(5)
+    character = rep.character(highest_weight, 5)
 
     assert character == expected
     assert character.coefficient(q, 5) == expected.coefficient(q, 5)
 
 
 @pytest.mark.sage
-def test_integrable_module_character_accepts_explicit_translations():
+def test_integrable_module_character_uses_auto_translations_only():
     from pyw.core.affine_lie_algebra import AffineLieAlgebra
     from pyw.core.affine_weight import AffineWeight
     from pyw.core.character import IntegrableModuleCharacter
 
     ala = AffineLieAlgebra(["A", 1, 1])
     lam = AffineWeight.affine_fundamental_weight(ala, 0)
-    rep = IntegrableModuleCharacter(lam)
+    rep = IntegrableModuleCharacter(ala)
 
-    explicit = [0]
-    character = rep.character(0, manual_translations=explicit)
+    character = rep.character(lam, 0)
 
     assert character != 0
 
@@ -242,13 +244,33 @@ def test_integrable_module_character_auto_path_does_not_instantiate_kl_character
 
     ala = AffineLieAlgebra(["A", 1, 1])
     lam = AffineWeight.affine_fundamental_weight(ala, 0)
-    rep = IntegrableModuleCharacter(lam)
+    rep = IntegrableModuleCharacter(ala)
 
     def _forbidden_init(self, algebra):
         raise AssertionError("IntegrableModuleCharacter should not instantiate KazhdanLusztigCharacter")
 
     monkeypatch.setattr(KazhdanLusztigCharacter, "__init__", _forbidden_init)
 
-    character = rep.character(0)
+    character = rep.character(lam, 0)
 
     assert character != 0
+
+
+@pytest.mark.sage
+def test_integrable_module_character_accepts_show_progress_and_debug():
+    from pyw.core.affine_lie_algebra import AffineLieAlgebra
+    from pyw.core.affine_weight import AffineWeight
+    from pyw.core.character import IntegrableModuleCharacter
+
+    ala = AffineLieAlgebra(["A", 1, 1])
+    lam = AffineWeight.affine_fundamental_weight(ala, 0)
+    rep = IntegrableModuleCharacter(ala)
+
+    result_default = rep.character(lam, 1)
+    result_progress = rep.character(lam, 1, show_progress=True)
+    result_debug = rep.character(lam, 1, debug=True)
+    result_both = rep.character(lam, 1, show_progress=True, debug=True)
+
+    assert result_default == result_progress
+    assert result_default == result_debug
+    assert result_default == result_both
