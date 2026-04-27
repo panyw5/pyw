@@ -22,3 +22,6 @@ pyw.egg-info/
 
 # accidental local scratch files
 ", wt.simple_reflection*"
+
+# nested local repository snapshots
+refs/Kazhdan-Lusztig/
