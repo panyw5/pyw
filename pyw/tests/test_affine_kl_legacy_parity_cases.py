@@ -57,6 +57,6 @@ def test_affine_kl_context_translation_set_satisfies_exact_nshift_inequality(
         if QQ(0) <= neg_shift <= max_neg_shift:
             expected.add(tuple(int(c) for c in coeffs))
 
-    got = {_coeff_tuple(ala, t.translation_vector) for t in context.translations}
+    got = {_coeff_tuple(ala, t.translation_vector) for t in context.manual_translations}
     assert expected.issubset(got)
     assert got

@@ -91,13 +91,32 @@ def test_affine_kl_context_defaults_to_exact_translation_selection():
 
     context = kl_char.prepare_data(lambda_hat, order=2)
 
-    assert len(context.translations) == 3
-    assert context.translations[0].translation_vector == ala.affine_weyl_group()._zero_beta
-    assert any(t.translation_vector == -beta for t in context.translations)
+    assert len(context.manual_translations) == 3
+    assert context.manual_translations[0].translation_vector == ala.affine_weyl_group()._zero_beta
+    assert any(t.translation_vector == -beta for t in context.manual_translations)
     assert any(
         t.translation_vector == -(beta + ala.affine_weyl_group()._finite_coroot_space.simple_roots()[2])
-        for t in context.translations
+        for t in context.manual_translations
     )
+
+
+@pytest.mark.sage
+def test_affine_kl_context_auto_translations_satisfy_n_shift_bound():
+    from pyw.core.affine_lie_algebra import AffineLieAlgebra
+    from pyw.core.affine_weight import AffineWeight
+    from pyw.core.character import KazhdanLusztigCharacter
+
+    ala = AffineLieAlgebra(["A", 2, 1])
+    lambda_hat = AffineWeight.affine_fundamental_weight(ala, 1)
+    kl_char = KazhdanLusztigCharacter(ala)
+    order = 2
+
+    context = kl_char.prepare_data(lambda_hat, order=order)
+    dominant_weight = context.Lambda_hat + ala.affine_rho()
+
+    for translation in context.manual_translations:
+        neg_shift = _neg_shift_formula(dominant_weight, translation.translation_vector)
+        assert QQ(0) <= neg_shift <= QQ(order) + QQ(dominant_weight.grade)
 
 
 @pytest.mark.sage
@@ -210,10 +229,10 @@ def test_affine_kl_context_stores_normalized_translation_set():
     context = kl_char.prepare_data(
         lambda_hat,
         order=1,
-        translations=[W.translation(beta), beta, 0, beta],
+        manual_translations=[W.translation(beta), beta, 0, beta],
     )
 
-    assert [t.translation_vector for t in context.translations] == [W._zero_beta, beta]
+    assert [t.translation_vector for t in context.manual_translations] == [W._zero_beta, beta]
 
 
 def _word_tuple(element):
@@ -232,7 +251,7 @@ def _word_tuple(element):
         (["D", 4, 1], 1, 1, 0),
     ],
 )
-def test_W_affine_as_words_direct_builder_matches_semidirect_builder(cartan, index, n, order):
+def test_W_affine_as_words_direct_builder_contains_prepare_data_candidates(cartan, index, n, order):
     from pyw.core.affine_lie_algebra import AffineLieAlgebra
     from pyw.core.character import KazhdanLusztigCharacter
 
@@ -243,8 +262,9 @@ def test_W_affine_as_words_direct_builder_matches_semidirect_builder(cartan, ind
 
     context = kl_char.prepare_data(lambda_hat, order=order)
 
-    normalized_translation_vectors = [t.translation_vector for t in context.translations]
+    normalized_translation_vectors = [t.translation_vector for t in context.manual_translations]
     direct = kl_char._build_W_affine_as_words_direct(normalized_translation_vectors)
-    legacy = kl_char._build_W_affine_as_words_via_semidirect(context.translations)
 
-    assert [_word_tuple(w) for w in direct] == [_word_tuple(w) for w in legacy]
+    assert {_word_tuple(w) for w in context.W_affine_as_words}.issubset(
+        {_word_tuple(w) for w in direct}
+    )

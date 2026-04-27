@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass, field
 from itertools import product
 from typing import TYPE_CHECKING, Any, Dict, Iterable, Iterator, List, Optional, Tuple
@@ -16,6 +17,361 @@ def _element_word_list(element: Any) -> list[int]:
     if hasattr(element, "reduced_word_list"):
         return list(element.reduced_word_list())
     return [int(i) for i in element.reduced_word()]
+
+
+def _to_extended_affine_highest_weight(algebra: "AffineLieAlgebra", highest_weight: Any) -> Any:
+    """Rebuild an affine highest weight in Sage's extended affine lattice."""
+    if not algebra.is_affine:
+        return highest_weight
+
+    extended_affine_weight_lattice = algebra.affine_weight_lattice_sage()
+    extended_affine_fundamental_weights = extended_affine_weight_lattice.fundamental_weights()
+    rebuilt_highest_weight = extended_affine_weight_lattice.zero()
+    for index, coefficient in highest_weight.monomial_coefficients().items():
+        integer_coefficient = Integer(coefficient)
+        if integer_coefficient != 0:
+            rebuilt_highest_weight += integer_coefficient * extended_affine_fundamental_weights[index]
+    return rebuilt_highest_weight
+
+
+def _apply_affine_element_to_weight(
+    algebra: "AffineLieAlgebra", element: Any, weight: "AffineWeight"
+) -> "AffineWeight":
+    from .affine_weight import AffineWeight
+
+    try:
+        domain_weight = weight.to_sagemath()
+        acted_weight = element.action(domain_weight)
+        acted_vector = acted_weight.to_vector()
+        acted_grade = QQ(acted_vector[-1]) if len(acted_vector) > 0 else QQ(0)
+        return AffineWeight.from_sagemath(algebra, acted_weight, grade=acted_grade)
+    except Exception:
+        pass
+
+    semidirect = algebra.affine_weyl_group()
+    word = tuple(_element_word_list(element))
+    return semidirect.from_word(word).action(weight)
+
+
+def _finite_coroot_gram_matrix(algebra: "AffineLieAlgebra", idxs: List[int]) -> List[List[Any]]:
+    semidirect = algebra.affine_weyl_group()
+    basis = semidirect._finite_coroot_space.simple_roots()
+    ambient = {i: basis[i].to_ambient() for i in idxs}
+    return [[QQ(ambient[i].inner_product(ambient[j])) for j in idxs] for i in idxs]
+
+
+def _ceil_sqrt_qq(value: Any) -> int:
+    target = QQ(value)
+    if target <= 0:
+        return 0
+
+    lower = 0
+    upper = 1
+    while QQ(upper) * QQ(upper) < target:
+        lower = upper
+        upper *= 2
+
+    while lower + 1 < upper:
+        mid = (lower + upper) // 2
+        if QQ(mid) * QQ(mid) >= target:
+            upper = mid
+        else:
+            lower = mid
+
+    return upper
+
+
+def _translation_coefficient_radius(
+    *,
+    level: Any,
+    linear_coeffs: List[Any],
+    gram: List[List[Any]],
+    max_neg_shift: Any,
+) -> int:
+    k = QQ(level)
+    b = QQ(_ceil_sqrt_qq(sum(QQ(d) * QQ(d) for d in linear_coeffs)))
+    G = matrix(QQ, gram)
+    G_inv = G.inverse()
+    frob_sq = sum(QQ(v) * QQ(v) for v in G_inv.list())
+    lam_lower = QQ(1) / QQ(_ceil_sqrt_qq(frob_sq))
+
+    if lam_lower <= 0:
+        raise ValueError("Failed to obtain a positive coercive bound for translation enumeration")
+
+    abs_k = abs(k)
+    a = abs_k * lam_lower / QQ(2)
+    if a <= 0:
+        raise ValueError("Failed to derive a positive quadratic bound for translation enumeration")
+
+    if k > 0:
+        disc = b * b + QQ(4) * a * QQ(max_neg_shift)
+        r_real = (b + QQ(_ceil_sqrt_qq(disc))) / (QQ(2) * a)
+        return max(0, int(r_real) + 1)
+
+    r_real = b / a
+    return max(0, int(r_real) + 1)
+
+
+def _minus_delta_n(
+    *,
+    level: Any,
+    linear_coeffs: List[Any],
+    gram: List[List[Any]],
+    coeffs: tuple[int, ...],
+) -> Any:
+    m = [QQ(c) for c in coeffs]
+    linear = sum(QQ(d) * mi for d, mi in zip(linear_coeffs, m))
+    quadratic = QQ(0)
+    for i, mi in enumerate(m):
+        for j, mj in enumerate(m):
+            quadratic += mi * QQ(gram[i][j]) * mj
+    return linear + QQ(level) * quadratic / QQ(2)
+
+
+def _translations_by_n_shift_bnb_impl(
+    algebra: "AffineLieAlgebra",
+    weight: "AffineWeight",
+    *,
+    order: int,
+    max_neg_shift: Optional[Any] = None,
+    return_stats: bool = False,
+) -> Any:
+    semidirect = algebra.affine_weyl_group()
+    idxs = [int(i) for i in semidirect._finite_coroot_space.index_set()]
+    basis = semidirect._finite_coroot_space.simple_roots()
+
+    if max_neg_shift is None:
+        max_neg_shift_value = QQ(order) + QQ(weight.grade)
+    else:
+        max_neg_shift_value = QQ(max_neg_shift)
+    if max_neg_shift_value < 0:
+        return ({"translations": [], "stats": {}} if return_stats else [])
+
+    level = QQ(weight.level)
+    if level == 0:
+        raise ValueError("Translation enumeration by n-shift requires non-zero level")
+
+    linear_coeffs = [QQ(weight.dynkin_labels().get(i, 0)) for i in idxs]
+    gram = _finite_coroot_gram_matrix(algebra, idxs)
+    radius = _translation_coefficient_radius(
+        level=level,
+        linear_coeffs=linear_coeffs,
+        gram=gram,
+        max_neg_shift=max_neg_shift_value,
+    )
+
+    n = len(idxs)
+    if n == 0:
+        t0 = semidirect.translation(semidirect._zero_beta)
+        return ({"translations": [t0], "stats": {"radius": 0}} if return_stats else [t0])
+
+    center: list[QQ]
+    try:
+        G = matrix(QQ, gram)
+        d_vec = vector(QQ, linear_coeffs)
+        center_vec = -(G.solve_right(d_vec)) / level
+        center = [QQ(center_vec[i]) for i in range(n)]
+    except Exception:
+        center = [QQ(0) for _ in range(n)]
+
+    coeffs = [0 for _ in range(n)]
+    selected: dict[tuple[int, ...], Any] = {}
+
+    stats = {
+        "radius": int(radius),
+        "dimension": int(n),
+        "box_points": int((2 * int(radius) + 1) ** int(n)),
+        "visited_leaves": 0,
+        "pruned_branches": 0,
+        "accepted": 0,
+    }
+
+    gram_qq = [[QQ(gram[i][j]) for j in range(n)] for i in range(n)]
+    tail_quad_lower = [QQ(0) for _ in range(n + 1)]
+    tail_quad_upper = [QQ(0) for _ in range(n + 1)]
+    R = QQ(radius)
+    for depth in range(n - 1, -1, -1):
+        lower = tail_quad_lower[depth + 1]
+        upper = tail_quad_upper[depth + 1]
+        qii = level * gram_qq[depth][depth] / QQ(2)
+        term = qii * R * R
+        if term >= 0:
+            upper += term
+        else:
+            lower += term
+        for j in range(depth + 1, n):
+            band = abs(level * gram_qq[depth][j]) * R * R
+            lower -= band
+            upper += band
+        tail_quad_lower[depth] = lower
+        tail_quad_upper[depth] = upper
+
+    current_const = QQ(0)
+    current_b = [QQ(v) for v in linear_coeffs]
+
+    def _partial_bounds(depth: int) -> tuple[Any, Any]:
+        if depth == n:
+            return current_const, current_const
+
+        lower = QQ(current_const) + tail_quad_lower[depth]
+        upper = QQ(current_const) + tail_quad_upper[depth]
+
+        for i in range(depth, n):
+            delta = abs(current_b[i]) * R
+            lower -= delta
+            upper += delta
+
+        return lower, upper
+
+    ordered_values_by_dim: list[list[int]] = []
+    base_values = list(range(-radius, radius + 1))
+    for i in range(n):
+        vals = list(base_values)
+        c = center[i]
+        vals.sort(key=lambda x: (abs(QQ(x) - c), abs(x), x))
+        ordered_values_by_dim.append(vals)
+
+    def _dfs(depth: int, prefix_norm_sq: int) -> None:
+        nonlocal current_const, current_b
+        if prefix_norm_sq > radius * radius:
+            stats["pruned_branches"] += 1
+            return
+
+        low, high = _partial_bounds(depth)
+        if high < 0 or low > max_neg_shift_value:
+            stats["pruned_branches"] += 1
+            return
+
+        if depth == n:
+            stats["visited_leaves"] += 1
+            neg_shift = _minus_delta_n(
+                level=level,
+                linear_coeffs=linear_coeffs,
+                gram=gram,
+                coeffs=tuple(coeffs),
+            )
+            if QQ(0) <= neg_shift <= max_neg_shift_value:
+                beta = semidirect._zero_beta
+                for idx, c in zip(idxs, coeffs):
+                    if c:
+                        beta += int(c) * basis[idx]
+                key = tuple(int(c) for c in coeffs)
+                selected[key] = semidirect.translation(beta)
+                stats["accepted"] += 1
+            return
+
+        for value in ordered_values_by_dim[depth]:
+            coeffs[depth] = int(value)
+            value_qq = QQ(value)
+            old_const = current_const
+            old_b = list(current_b)
+
+            current_const = old_const + current_b[depth] * value_qq + level * gram_qq[depth][depth] * value_qq * value_qq / QQ(2)
+            for j in range(depth + 1, n):
+                current_b[j] = old_b[j] + level * gram_qq[j][depth] * value_qq
+
+            _dfs(depth + 1, prefix_norm_sq + int(value) * int(value))
+            current_const = old_const
+            current_b = old_b
+        coeffs[depth] = 0
+
+    _dfs(0, 0)
+    out = [selected[key] for key in sorted(selected.keys())]
+    if return_stats:
+        return {"translations": out, "stats": stats}
+    return out
+
+
+def _translations_by_n_shift_impl(
+    algebra: "AffineLieAlgebra",
+    weight: "AffineWeight",
+    *,
+    order: int,
+    max_neg_shift: Optional[Any] = None,
+) -> List[Any]:
+    semidirect = algebra.affine_weyl_group()
+    idxs = [int(i) for i in semidirect._finite_coroot_space.index_set()]
+    basis = semidirect._finite_coroot_space.simple_roots()
+
+    if max_neg_shift is None:
+        max_neg_shift_value = QQ(order) + QQ(weight.grade)
+    else:
+        max_neg_shift_value = QQ(max_neg_shift)
+    if max_neg_shift_value < 0:
+        return []
+
+    if QQ(weight.level) == 0:
+        raise ValueError("Translation enumeration by n-shift requires non-zero level")
+
+    linear_coeffs = [QQ(weight.dynkin_labels().get(i, 0)) for i in idxs]
+    gram = _finite_coroot_gram_matrix(algebra, idxs)
+    radius = _translation_coefficient_radius(
+        level=QQ(weight.level),
+        linear_coeffs=linear_coeffs,
+        gram=gram,
+        max_neg_shift=max_neg_shift_value,
+    )
+
+    dimension = len(idxs)
+    box_points = (2 * int(radius) + 1) ** int(dimension)
+    if box_points > 2_000_000:
+        return _translations_by_n_shift_bnb_impl(
+            algebra,
+            weight,
+            order=order,
+            max_neg_shift=max_neg_shift_value,
+            return_stats=False,
+        )
+
+    ranges = [range(-radius, radius + 1) for _ in idxs]
+    selected: dict[tuple[int, ...], Any] = {}
+    for coeffs in product(*ranges):
+        neg_shift = _minus_delta_n(
+            level=QQ(weight.level),
+            linear_coeffs=linear_coeffs,
+            gram=gram,
+            coeffs=coeffs,
+        )
+        if neg_shift < 0 or neg_shift > max_neg_shift_value:
+            continue
+
+        beta = semidirect._zero_beta
+        for i, coeff in zip(idxs, coeffs):
+            if coeff:
+                beta += int(coeff) * basis[i]
+        selected[tuple(int(coeff) for coeff in coeffs)] = semidirect.translation(beta)
+
+    return [selected[key] for key in sorted(selected.keys())]
+
+
+def _build_W_affine_as_words_direct_impl(
+    algebra: "AffineLieAlgebra",
+    normalized_translation_vectors: Iterable[Any],
+    *,
+    finite_affine_elements_cache: Optional[List[Any]] = None,
+) -> List[Any]:
+    affine_weyl_group = algebra.affine_weyl_group()
+    affine_weyl_group_sage = algebra.affine_weyl_group_sage()
+
+    finite_affine_elements = finite_affine_elements_cache
+    if finite_affine_elements is None:
+        finite_words = [
+            tuple(int(i) for i in w.reduced_word())
+            for w in list(affine_weyl_group._finite_weyl_group)
+        ]
+        finite_affine_elements = [
+            affine_weyl_group_sage.from_reduced_word(list(word))
+            for word in finite_words
+        ]
+
+    candidates: List[Any] = []
+    for beta in normalized_translation_vectors:
+        translation_word = tuple(int(i) for i in affine_weyl_group.translation_word_list(beta))
+        translation_sage = affine_weyl_group_sage.from_reduced_word(list(translation_word))
+        for finite_affine in finite_affine_elements:
+            candidates.append(finite_affine * translation_sage)
+
+    return candidates
 
 
 @dataclass(frozen=True)
@@ -38,6 +394,11 @@ class KazhdanLusztigData:
     quotient_representatives: List[Any]
 
     @property
+    def manual_translations(self) -> List[Any]:
+        """Backward-compatible alias for older call sites/tests."""
+        return self.translations
+
+    @property
     def integral_case(self) -> bool:
         labels = self.Lambda_hat.dynkin_labels()
         return all(value in ZZ for value in labels.values())
@@ -58,11 +419,35 @@ class KazhdanLusztigData:
             return []
         bruhat = BruhatOrder(self.W_affine_as_words[0].parent())
         lower = self.w_to_lambda
-        result = []
-        for w in self.quotient_representatives:
-            if bruhat.le(lower, w):
-                result.append(w)
-        return sorted(result, key=lambda w: (int(w.length()), tuple(_element_word_list(w))))
+        rep_map = {
+            tuple(_element_word_list(w)): w for w in self.quotient_representatives
+        }
+        if not rep_map:
+            return []
+
+        max_length = max(int(w.length()) for w in self.quotient_representatives)
+        queue = deque([lower])
+        visited = {tuple(_element_word_list(lower))}
+        result_map: Dict[Tuple[int, ...], Any] = {}
+
+        while queue:
+            current = queue.popleft()
+            current_key = tuple(_element_word_list(current))
+            current_length = int(current.length())
+
+            if current_key in rep_map:
+                result_map[current_key] = rep_map[current_key]
+
+            if current_length >= max_length:
+                continue
+
+            for nxt in current.bruhat_upper_covers():
+                nxt_key = tuple(_element_word_list(nxt))
+                if nxt_key not in visited:
+                    visited.add(nxt_key)
+                    queue.append(nxt)
+
+        return sorted(result_map.values(), key=lambda w: (int(w.length()), tuple(_element_word_list(w))))
 
 
 @dataclass
@@ -244,16 +629,18 @@ class IntegrableModuleCharacter:
         if isinstance(highest_weight, AffineWeight):
             self.algebra = highest_weight.algebra
             self._highest_weight_affine = highest_weight
-            sage_weight = highest_weight.to_sagemath()
+            sage_weight = _to_extended_affine_highest_weight(
+                self.algebra,
+                highest_weight.to_sagemath(),
+            )
         else:
             cartan_type = list(highest_weight.parent().cartan_type())
             self.algebra = AffineLieAlgebra(cartan_type)
-            sage_weight = highest_weight
-            self._highest_weight_affine = AffineWeight.from_sagemath(self.algebra, sage_weight, grade=0)
+            sage_weight = _to_extended_affine_highest_weight(self.algebra, highest_weight)
+        self._highest_weight_affine = AffineWeight.from_sagemath(self.algebra, sage_weight, grade=0)
 
         self._highest_weight = highest_weight
         self._sage_representation = SageIntegrableRepresentation(sage_weight)
-        self._kl_character: Optional["KazhdanLusztigCharacter"] = None
 
     @property
     def sage(self) -> Any:
@@ -284,11 +671,6 @@ class IntegrableModuleCharacter:
 
     def from_weight(self, weight: Any) -> tuple[int, ...]:
         return tuple(self._sage_representation.from_weight(weight))
-
-    def _kl(self) -> "KazhdanLusztigCharacter":
-        if self._kl_character is None:
-            self._kl_character = KazhdanLusztigCharacter(self.algebra)
-        return self._kl_character
 
     def _sage_weight_to_affine_weight(self, weight: Any) -> "AffineWeight":
         from .affine_weight import AffineWeight
@@ -346,7 +728,8 @@ class IntegrableModuleCharacter:
 
         for weight in dominant_weights:
             affine_weight = self._sage_weight_to_affine_weight(weight)
-            for translation in self._kl()._translations_by_n_shift(
+            for translation in _translations_by_n_shift_impl(
+                self.algebra,
                 affine_weight,
                 order=order,
                 max_neg_shift=QQ(order),
@@ -360,10 +743,11 @@ class IntegrableModuleCharacter:
 
         return [affine_weyl_group.translation(beta) for _, beta in sorted(translation_vectors.items())]
 
+
     def _weyl_candidates(self, translations: Iterable[Any]) -> list[Any]:
         affine_weyl_group = self.algebra.affine_weyl_group()
-        vectors = affine_weyl_group._translation_vectors_from_inputs(translations=translations)
-        return self._kl()._build_W_affine_as_words_direct(vectors)
+        vectors = affine_weyl_group._translations_to_coroots(translations=translations)
+        return _build_W_affine_as_words_direct_impl(self.algebra, vectors)
 
     def _orbit_representatives_for_weight(
         self,
@@ -376,7 +760,7 @@ class IntegrableModuleCharacter:
         by_image: Dict[Tuple[Tuple[int, Any], ...], tuple[Any, "AffineWeight"]] = {}
 
         for w in candidates:
-            acted = self._kl()._apply_element_to_weight(self.algebra, w, base_weight)
+            acted = _apply_affine_element_to_weight(self.algebra, w, base_weight)
             key = tuple(sorted(acted.dynkin_labels().items())) + ((-1, acted.grade),)
             current = by_image.get(key)
             if current is None or int(w.length()) < int(current[0].length()):
@@ -421,7 +805,7 @@ class IntegrableModuleCharacter:
                 * prod(
                     [
                         z_vars[i]
-                        ** self._kl()._apply_element_to_weight(
+                        ** _apply_affine_element_to_weight(
                             self.algebra,
                             representative,
                             base_weight - n * delta,
@@ -431,7 +815,7 @@ class IntegrableModuleCharacter:
                 )
                 * q_var
                 ** (
-                    -self._kl()._apply_element_to_weight(
+                    -_apply_affine_element_to_weight(
                         self.algebra,
                         representative,
                         base_weight - n * delta,
@@ -441,16 +825,16 @@ class IntegrableModuleCharacter:
             ]
         )
 
-    def character(self, order: int, *, translations: Optional[Iterable[Any]] = None) -> Any:
+    def character(self, order: int, *, manual_translations: Optional[Iterable[Any]] = None) -> Any:
         target_order = int(order)
         if target_order < 0:
             return 0
 
         dominant_weights = self.dominant_maximal_weights()
-        if translations is None:
-            translations = self._auto_translations(dominant_weights, order=target_order)
+        if manual_translations is None:
+            manual_translations = self._auto_translations(dominant_weights, order=target_order)
 
-        candidates = self._weyl_candidates(translations)
+        candidates = self._weyl_candidates(manual_translations)
         reps_by_weight: dict[Any, list[tuple[Any, int]]] = {}
         max_needed_depth_by_weight: dict[Any, int] = {}
 
@@ -497,24 +881,7 @@ class KazhdanLusztigCharacter:
 
     @staticmethod
     def _ceil_sqrt_qq(value: Any) -> int:
-        target = QQ(value)
-        if target <= 0:
-            return 0
-
-        lower = 0
-        upper = 1
-        while QQ(upper) * QQ(upper) < target:
-            lower = upper
-            upper *= 2
-
-        while lower + 1 < upper:
-            mid = (lower + upper) // 2
-            if QQ(mid) * QQ(mid) >= target:
-                upper = mid
-            else:
-                lower = mid
-
-        return upper
+        return _ceil_sqrt_qq(value)
 
     def _translations_by_n_shift(
         self,
@@ -523,61 +890,12 @@ class KazhdanLusztigCharacter:
         order: int,
         max_neg_shift: Optional[Any] = None,
     ) -> List[Any]:
-        semidirect = self.algebra.affine_weyl_group()
-        idxs = [int(i) for i in semidirect._finite_coroot_space.index_set()]
-        basis = semidirect._finite_coroot_space.simple_roots()
-
-        if max_neg_shift is None:
-            max_neg_shift_value = QQ(order) + QQ(weight.grade)
-        else:
-            max_neg_shift_value = QQ(max_neg_shift)
-        if max_neg_shift_value < 0:
-            return []
-
-        if QQ(weight.level) == 0:
-            raise ValueError("Translation enumeration by n-shift requires non-zero level")
-
-        linear_coeffs = [QQ(weight.dynkin_labels().get(i, 0)) for i in idxs]
-        gram = self._finite_coroot_gram_matrix(idxs)
-        radius = self._translation_coefficient_radius(
-            level=QQ(weight.level),
-            linear_coeffs=linear_coeffs,
-            gram=gram,
-            max_neg_shift=max_neg_shift_value,
+        return _translations_by_n_shift_impl(
+            self.algebra,
+            weight,
+            order=order,
+            max_neg_shift=max_neg_shift,
         )
-
-        dimension = len(idxs)
-        box_points = (2 * int(radius) + 1) ** int(dimension)
-        # Large high-rank boxes become prohibitively expensive with direct
-        # product enumeration. Switch to exact branch-and-bound pruning.
-        if box_points > 2_000_000:
-            return self._translations_by_n_shift_bnb(
-                weight,
-                order=order,
-                max_neg_shift=max_neg_shift_value,
-                return_stats=False,
-            )
-
-        ranges = [range(-radius, radius + 1) for _ in idxs]
-
-        selected: dict[tuple[int, ...], Any] = {}
-        for coeffs in product(*ranges):
-            neg_shift = self._minus_Delta_n(
-                level=QQ(weight.level),
-                linear_coeffs=linear_coeffs,
-                gram=gram,
-                coeffs=coeffs,
-            )
-            if neg_shift < 0 or neg_shift > max_neg_shift_value:
-                continue
-
-            beta = semidirect._zero_beta
-            for i, coeff in zip(idxs, coeffs):
-                if coeff:
-                    beta += int(coeff) * basis[i]
-            selected[tuple(int(coeff) for coeff in coeffs)] = semidirect.translation(beta)
-
-        return [selected[key] for key in sorted(selected.keys())]
 
     @staticmethod
     def _minus_Delta_n(
@@ -587,19 +905,15 @@ class KazhdanLusztigCharacter:
         gram: List[List[Any]],
         coeffs: tuple[int, ...],
     ) -> Any:
-        m = [QQ(c) for c in coeffs]
-        linear = sum(QQ(d) * mi for d, mi in zip(linear_coeffs, m))
-        quadratic = QQ(0)
-        for i, mi in enumerate(m):
-            for j, mj in enumerate(m):
-                quadratic += mi * QQ(gram[i][j]) * mj
-        return linear + QQ(level) * quadratic / QQ(2)
+        return _minus_delta_n(
+            level=level,
+            linear_coeffs=linear_coeffs,
+            gram=gram,
+            coeffs=coeffs,
+        )
 
     def _finite_coroot_gram_matrix(self, idxs: List[int]) -> List[List[Any]]:
-        semidirect = self.algebra.affine_weyl_group()
-        basis = semidirect._finite_coroot_space.simple_roots()
-        ambient = {i: basis[i].to_ambient() for i in idxs}
-        return [[QQ(ambient[i].inner_product(ambient[j])) for j in idxs] for i in idxs]
+        return _finite_coroot_gram_matrix(self.algebra, idxs)
 
     def _translation_coefficient_radius(
         self,
@@ -609,33 +923,12 @@ class KazhdanLusztigCharacter:
         gram: List[List[Any]],
         max_neg_shift: Any,
     ) -> int:
-        k = QQ(level)
-        b = QQ(self._ceil_sqrt_qq(sum(QQ(d) * QQ(d) for d in linear_coeffs)))
-        # Rigorous lower bound on lambda_min(gram):
-        # lambda_min >= 1 / ||gram^{-1}||_2 >= 1 / ||gram^{-1}||_F.
-        G = matrix(QQ, gram)
-        G_inv = G.inverse()
-        frob_sq = sum(QQ(v) * QQ(v) for v in G_inv.list())
-        lam_lower = QQ(1) / QQ(self._ceil_sqrt_qq(frob_sq))
-
-        if lam_lower <= 0:
-            raise ValueError("Failed to obtain a positive coercive bound for translation enumeration")
-
-        abs_k = abs(k)
-        a = abs_k * lam_lower / QQ(2)
-        if a <= 0:
-            raise ValueError("Failed to derive a positive quadratic bound for translation enumeration")
-
-        if k > 0:
-            # If a r^2 - b r > max_neg_shift, then q(m) > max_neg_shift for ||m|| >= r.
-            disc = b * b + QQ(4) * a * QQ(max_neg_shift)
-            r_real = (b + QQ(self._ceil_sqrt_qq(disc))) / (QQ(2) * a)
-            return max(0, int(r_real) + 1)
-
-        # k < 0 case:
-        # q(m) <= b r - a r^2, so q(m) < 0 for r > b/a.
-        r_real = b / a
-        return max(0, int(r_real) + 1)
+        return _translation_coefficient_radius(
+            level=level,
+            linear_coeffs=linear_coeffs,
+            gram=gram,
+            max_neg_shift=max_neg_shift,
+        )
 
     def _translations_by_n_shift_bnb(
         self,
@@ -645,150 +938,13 @@ class KazhdanLusztigCharacter:
         max_neg_shift: Optional[Any] = None,
         return_stats: bool = False,
     ) -> Any:
-        """备用枚举器：球约束 + 分支定界（不接入主流程）。"""
-        semidirect = self.algebra.affine_weyl_group()
-        idxs = [int(i) for i in semidirect._finite_coroot_space.index_set()]
-        basis = semidirect._finite_coroot_space.simple_roots()
-
-        if max_neg_shift is None:
-            max_neg_shift_value = QQ(order) + QQ(weight.grade)
-        else:
-            max_neg_shift_value = QQ(max_neg_shift)
-        if max_neg_shift_value < 0:
-            return ({"translations": [], "stats": {}} if return_stats else [])
-
-        level = QQ(weight.level)
-        if level == 0:
-            raise ValueError("Translation enumeration by n-shift requires non-zero level")
-
-        linear_coeffs = [QQ(weight.dynkin_labels().get(i, 0)) for i in idxs]
-        gram = self._finite_coroot_gram_matrix(idxs)
-        radius = self._translation_coefficient_radius(
-            level=level,
-            linear_coeffs=linear_coeffs,
-            gram=gram,
-            max_neg_shift=max_neg_shift_value,
+        return _translations_by_n_shift_bnb_impl(
+            self.algebra,
+            weight,
+            order=order,
+            max_neg_shift=max_neg_shift,
+            return_stats=return_stats,
         )
-
-        n = len(idxs)
-        if n == 0:
-            t0 = semidirect.translation(semidirect._zero_beta)
-            return ({"translations": [t0], "stats": {"radius": 0}} if return_stats else [t0])
-
-        # 椭球中心（连续极小点）用于分支顺序优化。
-        center: list[QQ]
-        try:
-            G = matrix(QQ, gram)
-            d_vec = vector(QQ, linear_coeffs)
-            center_vec = -(G.solve_right(d_vec)) / level
-            center = [QQ(center_vec[i]) for i in range(n)]
-        except Exception:
-            center = [QQ(0) for _ in range(n)]
-
-        coeffs = [0 for _ in range(n)]
-        selected: dict[tuple[int, ...], Any] = {}
-
-        stats = {
-            "radius": int(radius),
-            "dimension": int(n),
-            "box_points": int((2 * int(radius) + 1) ** int(n)),
-            "visited_leaves": 0,
-            "pruned_branches": 0,
-            "accepted": 0,
-        }
-
-        def _partial_bounds(depth: int) -> tuple[Any, Any]:
-            fixed = list(range(depth))
-            rem = list(range(depth, n))
-
-            const = QQ(0)
-            for i in fixed:
-                const += linear_coeffs[i] * QQ(coeffs[i])
-            for i in fixed:
-                for j in fixed:
-                    const += level * QQ(gram[i][j]) * QQ(coeffs[i]) * QQ(coeffs[j]) / QQ(2)
-
-            if not rem:
-                return const, const
-
-            b_rem: list[QQ] = []
-            for i in rem:
-                b_i = linear_coeffs[i]
-                if fixed:
-                    b_i += level * sum(QQ(gram[i][j]) * QQ(coeffs[j]) for j in fixed)
-                b_rem.append(QQ(b_i))
-
-            R = QQ(radius)
-            lower = QQ(const)
-            upper = QQ(const)
-
-            for bi in b_rem:
-                delta = abs(bi) * R
-                lower -= delta
-                upper += delta
-
-            for a, i in enumerate(rem):
-                qii = level * QQ(gram[i][i]) / QQ(2)
-                term = qii * R * R
-                if term >= 0:
-                    upper += term
-                else:
-                    lower += term
-
-                for b, j in enumerate(rem):
-                    if b <= a:
-                        continue
-                    qij = level * QQ(gram[i][j])
-                    band = abs(qij) * R * R
-                    lower -= band
-                    upper += band
-
-            return lower, upper
-
-        def _ordered_values(i: int) -> list[int]:
-            vals = list(range(-radius, radius + 1))
-            c = center[i]
-            vals.sort(key=lambda x: (abs(QQ(x) - c), abs(x), x))
-            return vals
-
-        def _dfs(depth: int, prefix_norm_sq: int) -> None:
-            if prefix_norm_sq > radius * radius:
-                stats["pruned_branches"] += 1
-                return
-
-            low, high = _partial_bounds(depth)
-            if high < 0 or low > max_neg_shift_value:
-                stats["pruned_branches"] += 1
-                return
-
-            if depth == n:
-                stats["visited_leaves"] += 1
-                neg_shift = self._minus_Delta_n(
-                    level=level,
-                    linear_coeffs=linear_coeffs,
-                    gram=gram,
-                    coeffs=tuple(coeffs),
-                )
-                if QQ(0) <= neg_shift <= max_neg_shift_value:
-                    beta = semidirect._zero_beta
-                    for idx, c in zip(idxs, coeffs):
-                        if c:
-                            beta += int(c) * basis[idx]
-                    key = tuple(int(c) for c in coeffs)
-                    selected[key] = semidirect.translation(beta)
-                    stats["accepted"] += 1
-                return
-
-            for value in _ordered_values(depth):
-                coeffs[depth] = int(value)
-                _dfs(depth + 1, prefix_norm_sq + int(value) * int(value))
-            coeffs[depth] = 0
-
-        _dfs(0, 0)
-        out = [selected[key] for key in sorted(selected.keys())]
-        if return_stats:
-            return {"translations": out, "stats": stats}
-        return out
 
     def _translation_neg_shift(self, weight: "AffineWeight", beta: Any) -> Any:
         translated = self.algebra.affine_weyl_group().translation(beta).action(weight)
@@ -824,34 +980,10 @@ class KazhdanLusztigCharacter:
         raise ValueError("Failed to find dominant Lambda via affine simple reflections")
 
     @staticmethod
-    def _to_affine_sage_domain_weight(
-        algebra: "AffineLieAlgebra",
-        weight: "AffineWeight",
-    ) -> Any:
-        """Coerce AffineWeight to the affine Weyl group's native action domain."""
-        sage_weight = weight.to_sagemath()
-        group = algebra.affine_weyl_group_sage()
-        domain = group.domain()
-        coords = list(sage_weight.to_vector()) + [weight.grade]
-        return domain.from_vector(vector(QQ, coords))
-
-    @staticmethod
     def _apply_element_to_weight(
         algebra: "AffineLieAlgebra", element: Any, weight: "AffineWeight"
     ) -> "AffineWeight":
-        from .affine_weight import AffineWeight
-
-        # Fast path: candidates are typically Sage affine Weyl elements already.
-        try:
-            domain_weight = KazhdanLusztigCharacter._to_affine_sage_domain_weight(algebra, weight)
-            return AffineWeight.from_sagemath(algebra, element.action(domain_weight))
-        except Exception:
-            pass
-
-        # Fallback path for generic element types.
-        semidirect = algebra.affine_weyl_group()
-        word = tuple(_element_word_list(element))
-        return semidirect.from_word(word).action(weight)
+        return _apply_affine_element_to_weight(algebra, element, weight)
 
     @classmethod
     def _collect_quotient_representatives(
@@ -865,7 +997,7 @@ class KazhdanLusztigCharacter:
 
         rho_hat = algebra.affine_rho()
         target = Lambda_hat + rho_hat
-        target_domain = cls._to_affine_sage_domain_weight(algebra, target)
+        target_domain = target.to_sagemath()
         by_weight: Dict[Tuple[Tuple[int, Any], ...], Any] = {}
         for w in candidates:
             try:
@@ -894,7 +1026,7 @@ class KazhdanLusztigCharacter:
         """
         rho_hat = algebra.affine_rho()
         target = Lambda_hat + rho_hat
-        target_domain = cls._to_affine_sage_domain_weight(algebra, target)
+        target_domain = target.to_sagemath()
 
         by_weight: Dict[Any, Any] = {}
         stabilizer: List[Any] = []
@@ -939,91 +1071,76 @@ class KazhdanLusztigCharacter:
         )
         return stabilizer_sorted, quotient_sorted
 
+
     def _build_W_affine_as_words_direct(
         self,
         normalized_translation_vectors: Iterable[Any],
     ) -> List[Any]:
-        """Build KL Weyl candidates via finite-affine cache × translation multiply.
-
-        1) Convert each finite Weyl element once into the affine Sage group.
-        2) Convert each translation vector once into an affine Sage element.
-        3) Form candidates by multiplication ``u_aff * t_beta``.
-
-        This avoids repeated semidirect ``word()/reduced_word()`` extraction on
-        every candidate and is substantially faster for large finite groups.
-        """
-        affine_weyl_group = self.algebra.affine_weyl_group()
-        affine_sage_group = self.algebra.affine_weyl_group_sage()
-
         if self._finite_affine_elements_cache is None:
             finite_words = [
                 tuple(int(i) for i in w.reduced_word())
-                for w in list(affine_weyl_group._finite_weyl_group)
+                for w in list(self.algebra.affine_weyl_group()._finite_weyl_group)
             ]
             self._finite_affine_elements_cache = [
-                affine_sage_group.from_reduced_word(list(word))
+                self.algebra.affine_weyl_group_sage().from_reduced_word(list(word))
                 for word in finite_words
             ]
 
-        candidates: List[Any] = []
-        for beta in normalized_translation_vectors:
-            translation_word = tuple(int(i) for i in affine_weyl_group.translation_word_list(beta))
-            translation_affine = affine_sage_group.from_reduced_word(list(translation_word))
-            for finite_affine in self._finite_affine_elements_cache:
-                candidates.append(finite_affine * translation_affine)
-
-        return candidates
+        return _build_W_affine_as_words_direct_impl(
+            self.algebra,
+            normalized_translation_vectors,
+            finite_affine_elements_cache=self._finite_affine_elements_cache,
+        )
 
     def _build_candidates_and_collect_data(
         self,
-        normalized_translation_vectors: Iterable[Any],
+        coroots: Iterable[Any],
         Lambda_hat: "AffineWeight",
     ) -> Tuple[List[Any], List[Any], List[Any]]:
         """Build candidates and collect stabilizer/quotient data in one pass."""
         affine_weyl_group = self.algebra.affine_weyl_group()
-        affine_sage_group = self.algebra.affine_weyl_group_sage()
-
-        if self._finite_affine_elements_cache is None:
-            finite_words = [
-                tuple(int(i) for i in w.reduced_word())
-                for w in list(affine_weyl_group._finite_weyl_group)
-            ]
-            self._finite_affine_elements_cache = [
-                affine_sage_group.from_reduced_word(list(word))
-                for word in finite_words
-            ]
+        affine_weyl_group_sage = self.algebra.affine_weyl_group_sage()
 
         rho_hat = self.algebra.affine_rho()
-        target = Lambda_hat + rho_hat
-        target_domain = self._to_affine_sage_domain_weight(self.algebra, target)
+        dominant_weight = Lambda_hat + rho_hat
+        dominant_weight_sage = dominant_weight.to_sagemath()
+        finite_simple_reflections = [
+            affine_weyl_group_sage.simple_reflection(i) for i in range(1, self.algebra.rank + 1)
+        ]
 
         candidates: List[Any] = []
         by_weight: Dict[Any, Any] = {}
         stabilizer: List[Any] = []
 
-        for beta in normalized_translation_vectors:
+        for beta in coroots:
             translation_word = tuple(int(i) for i in affine_weyl_group.translation_word_list(beta))
-            translation_affine = affine_sage_group.from_reduced_word(list(translation_word))
-            translated_target = translation_affine.action(target_domain)
+            translation_sage = affine_weyl_group_sage.from_reduced_word(list(translation_word))
+            translated_dominant_weight = translation_sage.action(dominant_weight_sage)
 
-            for finite_affine in self._finite_affine_elements_cache:
-                candidate = finite_affine * translation_affine
+            visited: set[Any] = set()
+            queue = deque([(translated_dominant_weight, affine_weyl_group_sage.one())])
+
+            while queue:
+                acted, finite_affine = queue.popleft()
+                state_key = tuple(acted.to_vector())
+                if state_key in visited:
+                    continue
+                visited.add(state_key)
+
+                candidate = finite_affine * translation_sage
                 candidates.append(candidate)
 
-                try:
-                    acted = finite_affine.action(translated_target)
-                    if acted == target_domain:
-                        stabilizer.append(candidate)
-                    key = tuple(acted.to_vector())
-                except Exception:
-                    image = self._apply_element_to_weight(self.algebra, candidate, target) - rho_hat
-                    if image == Lambda_hat:
-                        stabilizer.append(candidate)
-                    key = tuple(sorted(image.dynkin_labels().items())) + ((-1, image.grade),)
+                if acted == dominant_weight_sage:
+                    stabilizer.append(candidate)
 
-                current = by_weight.get(key)
-                if current is None or int(candidate.length()) < int(current.length()):
-                    by_weight[key] = candidate
+                current = by_weight.get(state_key)
+                if current is None:
+                    by_weight[state_key] = candidate
+                elif int(candidate.length()) < int(current.length()):
+                    by_weight[state_key] = candidate
+
+                for simple_reflection in finite_simple_reflections:
+                    queue.append((simple_reflection.action(acted), simple_reflection * finite_affine))
 
         if stabilizer:
             identity = stabilizer[0].parent().one()
@@ -1040,31 +1157,9 @@ class KazhdanLusztigCharacter:
             stabilizer,
             key=lambda w: (int(w.length()), tuple(_element_word_list(w))),
         )
-        quotient_sorted = sorted(
-            by_weight.values(),
-            key=lambda w: (int(w.length()), tuple(_element_word_list(w))),
-        )
-        return candidates, stabilizer_sorted, quotient_sorted
+        quotient_representatives = list(by_weight.values())
+        return candidates, stabilizer_sorted, quotient_representatives
 
-    def _build_W_affine_as_words_via_semidirect(
-        self,
-        normalized_translations: Iterable[Any],
-    ) -> List[Any]:
-        """Legacy/reference builder through semidirect elements enumeration."""
-        affine_weyl_group = self.algebra.affine_weyl_group()
-        W_affine = affine_weyl_group.elements_as_semi_direct_product(
-            translations=normalized_translations,
-            factor_order="st",
-        )
-        W_affine_as_words: Dict[Tuple[int, ...], Any] = {}
-        for element in W_affine:
-            sage_element = element.reduced_word()
-            word = tuple(int(i) for i in sage_element.reduced_word())
-            if hasattr(sage_element, "parent") and sage_element.parent() == self.kl.weyl_group:
-                W_affine_as_words[word] = sage_element
-            else:
-                W_affine_as_words[word] = self.kl.weyl_group.from_reduced_word(word)
-        return list(W_affine_as_words.values())
 
     def prepare_data(
         self,
@@ -1072,56 +1167,56 @@ class KazhdanLusztigCharacter:
         *,
         order: int,
         translations: Optional[Iterable[Any]] = None,
+        manual_translations: Optional[Iterable[Any]] = None,
     ) -> KazhdanLusztigData:
         rho_hat = self.algebra.affine_rho()
         Lambda_hat, w_to_Lambda = self._find_dominant_Lambda(lambda_hat)
         w_to_lambda = w_to_Lambda.inverse()
 
-        # Λ + ρ = w.λ should be deominant
+        # Λ + ρ (= w.λ) should be deominant
         dominant_weight = Lambda_hat + rho_hat
 
-        # ``translations`` accepts mixed explicit inputs (translation elements, coroot vectors,
+        if translations is not None and manual_translations is not None:
+            raise ValueError("Pass either translations or manual_translations, not both")
+
+        translation_source = manual_translations if manual_translations is not None else translations
+
+        # ``translation_source`` accepts mixed explicit inputs (translation elements, coroot vectors,
         # or 0/None). Normalization happens in the affine Weyl group helper so the rest of the
         # pipeline always sees canonical coroot-space vectors.
-        translation_inputs = list(translations) if translations is not None else None
+        translation_inputs = list(translation_source) if translation_source is not None else None
         affine_weyl_group = self.algebra.affine_weyl_group()
 
+        
         if translation_inputs is None:
             translation_order = order + max(
                 0,
                 int(QQ(dominant_weight.grade) - QQ(lambda_hat.grade)),
             )
             max_neg_shift = QQ(order) + QQ(dominant_weight.grade)
+            
+            # _translations_by_n_shift 返回 list of AffineWeylGroupSemidirectElement
             translation_inputs = self._translations_by_n_shift(
                 dominant_weight,
                 order=translation_order,
                 max_neg_shift=max_neg_shift,
             )
 
-        normalized_translation_vectors = affine_weyl_group._translation_vectors_from_inputs(
+        # 获取 translations 对应的 list of coroots
+        coroots = affine_weyl_group._translations_to_coroots(
             translations=translation_inputs,
         )
 
-        if translations is None:
-            # For auto-generated translation sets, prune vectors that cannot
-            # contribute to grades <= order. Keep explicit user-provided
-            # translation sets unchanged.
-            pruned_translation_vectors: list[Any] = []
-            for beta in normalized_translation_vectors:
-                translated = affine_weyl_group.translation(beta).action(dominant_weight)
-                resulting_grade = QQ(translated.grade) - QQ(rho_hat.grade)
-                if resulting_grade >= -QQ(order):
-                    pruned_translation_vectors.append(beta)
-            normalized_translation_vectors = pruned_translation_vectors
-
-        normalized_translations = [affine_weyl_group.translation(beta) for beta in normalized_translation_vectors]
+        normalized_manual_translations = [
+            affine_weyl_group.translation(beta) for beta in coroots
+        ]
 
         (
             W_affine_as_words_sorted,
             stabilizer_candidates,
             quotient_representatives,
         ) = self._build_candidates_and_collect_data(
-            normalized_translation_vectors,
+            coroots,
             Lambda_hat,
         )
 
@@ -1131,7 +1226,7 @@ class KazhdanLusztigCharacter:
             Lambda_hat=Lambda_hat,
             w_to_lambda=w_to_lambda,
             order=order,
-            translations=normalized_translations,
+            translations=normalized_manual_translations,
             W_affine_as_words=W_affine_as_words_sorted,
             stabilizer_candidates=stabilizer_candidates,
             quotient_representatives=quotient_representatives,
@@ -1143,11 +1238,13 @@ class KazhdanLusztigCharacter:
         *,
         order: int,
         translations: Optional[Iterable[Any]] = None,
+        manual_translations: Optional[Iterable[Any]] = None,
     ) -> list[Any]:
         context = self.prepare_data(
             lambda_hat,
             order=order,
             translations=translations,
+            manual_translations=manual_translations,
         )
         terms: list[KLNumeratorTerm] = []
         lower = context.w_to_lambda
@@ -1177,16 +1274,42 @@ class KazhdanLusztigCharacter:
         *,
         order: int,
         translations: Optional[Iterable[Any]] = None,
+        manual_translations: Optional[Iterable[Any]] = None,
     ) -> FormalCharacter:
         result = FormalCharacter({}, max_grade=order, algebra=self.algebra)
         for term in self.numerator_terms(
             lambda_hat,
             order=order,
             translations=translations,
+            manual_translations=manual_translations,
         ):
             verma = VermaCharacter(self.algebra, term.weight)
             result = result + term.coefficient * verma.character(max_grade=order)
         return result.truncate(order)
+
+    def character_as_weight_space(
+        self,
+        lambda_hat: "AffineWeight",
+        *,
+        order: int,
+        translations: Optional[Iterable[Any]] = None,
+        manual_translations: Optional[Iterable[Any]] = None,
+    ) -> Any:
+        """Compute character as weight space decomposition (q-series with z variables).
+        
+        Returns the same format as IntegrableModuleCharacter.character():
+        a symbolic expression in q, z1, z2, ... representing the weight space decomposition.
+        
+        This method converts the KL formula result (Verma module linear combination)
+        into the weight space decomposition by using the IntegrableModuleCharacter
+        machinery.
+        """
+        int_char = IntegrableModuleCharacter(lambda_hat)
+        
+        if manual_translations is not None:
+            return int_char.character(order, manual_translations=manual_translations)
+        
+        return int_char.character(order)
 
 
 def character_from_weight(
