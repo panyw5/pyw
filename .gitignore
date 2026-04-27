@@ -1,1 +1,24 @@
 .ace-tool/
+
+# macOS / Python artifacts
+.DS_Store
+**/.DS_Store
+**/__pycache__/
+*.pyc
+.coverage
+
+# build artifacts
+dist/
+pyw.egg-info/
+
+# local AI/dev tool state
+.agents/
+.claude/
+.codex/
+.cursor/
+.opencode/
+.sisyphus/
+.vscode/
+
+# accidental local scratch files
+", wt.simple_reflection*"
