@@ -22,7 +22,7 @@ class Alg:
             self.rank = self.cartanType[1]
             self.r = self.rank
             self.weight_lattice = RootSystem(cartanType).weight_lattice()
-        
+
         # basic quantities
         self.omega = self.weight_lattice.fundamental_weights()
         self.alpha = self.weight_lattice.simple_roots()
@@ -32,9 +32,11 @@ class Alg:
             # finite highest root (θ; 0; 0)
             # translate back to an affine root in the second step
             self.theta = self.weight_lattice.classical().positive_roots_by_height()[-1]
-            self.theta = sum([self.omega[i] * self.theta.to_vector()[i - 1] for i in range(1, self.r + 1)])
+            self.theta = sum(
+                [self.omega[i] * self.theta.to_vector()[i - 1] for i in range(1, self.r + 1)]
+            )
 
-            # self.weight_lattice.basic_imaginary_roots()[0] is 
+            # self.weight_lattice.basic_imaginary_roots()[0] is
             # the same as self.weight_lattice.null_root()
             self.delta = self.weight_lattice.basic_imaginary_roots()[0]
             # returns the classical Cartan matrix
@@ -53,16 +55,20 @@ class Alg:
         self.AInversed = self.A.inverse()
 
         self.comarks = {}
-        self.comarks.update(zip([i for i in range(1, self.r + 1)]
-        , [self.ScalarProduct(self.theta, self.omega[i]) for i in range(1, self.r + 1)]))
+        self.comarks.update(
+            zip(
+                [i for i in range(1, self.r + 1)],
+                [self.ScalarProduct(self.theta, self.omega[i]) for i in range(1, self.r + 1)],
+            )
+        )
         self.hcheck = 1 + sum(self.comarks.values())
 
         # Weyl group implementations
         # self.WW uses the built-in weyl_group
         # self.W will be generated manually
-        self.WW =  self.weight_lattice.weyl_group(prefix = "w")
-        self.ws = self.WW.generators(); # simple reflections
-        self.one = self.ws[0] * self.ws[0] # identity
+        self.WW = self.weight_lattice.weyl_group(prefix="w")
+        self.ws = self.WW.generators()  # simple reflections
+        self.one = self.ws[0] * self.ws[0]  # identity
 
         # For affine Weyl group
         # prepare simple translations t_i = s_i * s_{αi + δ}
@@ -70,21 +76,19 @@ class Alg:
             print("\t>>> Getting simple translations <<<", flush=True)
             # w_{α[i] + δ}, i = 0, 1, ..., r = rank - 1
             # note that w_{α[0] + δ} is also present
-            wiDelta = [self.WW.from_reduced_word(
-                (self.alpha[i] + self.delta).associated_reflection()
-            )
-                       for i in range(self.rank)]
-            self.simpleTranslations = [
-                self.ws[i] * wiDelta[i] for i in range(self.rank)
+            wiDelta = [
+                self.WW.from_reduced_word((self.alpha[i] + self.delta).associated_reflection())
+                for i in range(self.rank)
             ]
+            self.simpleTranslations = [self.ws[i] * wiDelta[i] for i in range(self.rank)]
 
         # initialize self.W for manual generation through self.GetWeylGroup(depth)
         self.W = [self.one]
         self.T = [self.one]
-        # self.WW.classical() are different objects from 
+        # self.WW.classical() are different objects from
         # those in self.WW
         # therefore can't perform product between the two types of elements
-        # need to translate back to elements in self.WW exploiting the 
+        # need to translate back to elements in self.WW exploiting the
         # reduced_word() expression
         print("\t>>> Getting finite Weyl group <<<", flush=True)
         start = time.time()
@@ -94,17 +98,22 @@ class Alg:
                 self.load_W_finite()
             except:
                 print("\t\t>>> File not found. Generating finite Weyl group.", flush=True)
-                self.WFinite = [self.WW.from_reduced_word(w.reduced_word())
-                                    for w in self.WW.classical().list()]
+                self.WFinite = [
+                    self.WW.from_reduced_word(w.reduced_word()) for w in self.WW.classical().list()
+                ]
                 if len(self.WFinite) < 10000:
-                    self.WFinite = sorted([
-                        self.WW.from_reduced_word(w.reduced_word())
-                                   for w in self.WW.classical().list()],
-                    key=lambda x: x.length())
+                    self.WFinite = sorted(
+                        [
+                            self.WW.from_reduced_word(w.reduced_word())
+                            for w in self.WW.classical().list()
+                        ],
+                        key=lambda x: x.length(),
+                    )
         elif len(cartanType) == 3 and not WLoad:
             print("\t\t>>> WLoad = False. Generating finite Weyl group.", flush=True)
-            self.WFinite = [self.WW.from_reduced_word(w.reduced_word())
-                                for w in self.WW.classical().list()]
+            self.WFinite = [
+                self.WW.from_reduced_word(w.reduced_word()) for w in self.WW.classical().list()
+            ]
         elif len(cartanType) == 2:
             self.WFinite = self.WW
         end = time.time()
@@ -115,20 +124,19 @@ class Alg:
         q = var("q")
         self.cox = Coxeter3(self.WW, q)
         try:
-            self.WWCoxeter3 = CoxeterGroup(
-                self.cartanType, implementation="coxeter3")
+            self.WWCoxeter3 = CoxeterGroup(self.cartanType, implementation="coxeter3")
         except:
             pass
         self.llambda = 0 * self.rho
         self.Lambda = 0 * self.rho
-        self.WLambda0 = []      # WLambda0 is used in Qtilde
+        self.WLambda0 = []  # WLambda0 is used in Qtilde
         self.QData = {}
         # When an instance is created,
         # update the Qdata from reading the stored data
         # might take some time
         if QLoad == True:
             self.QLoad()
-        print(">>> Initialization complete <<<", flush = True)
+        print(">>> Initialization complete <<<", flush=True)
 
     def Dynkin(self, weight):
         # Returns the Dynkin labels of the finite part
@@ -140,7 +148,7 @@ class Alg:
             # for finite weight
             labels = weight.to_vector()
             return list(labels)
-    
+
     def AffineDynkin(self, weight):
         # λ0 ωhat[0] + λi ωhat[i] + ... --> [λ0, λ1, ... ]
         # weight.to_vector() returns [λ0, λ1, ..., λr, n]
@@ -148,8 +156,8 @@ class Alg:
         # α0.to_vector() = (2,-2,1), α1.to_vector() = (-2, 2, 0)
         # α0^v.to_vector() = (1,0), α1^v.to_vector() = (0,1)
         # NOTE: [0:self.rank] ~ entry 0, 1, 2, ..., self.rank - 1
-        return list(weight.to_vector()[0:self.rank])
-    
+        return list(weight.to_vector()[0 : self.rank])
+
     def ScalarProduct(self, weight1, weight2):
         # compute scalar product of FINITE weights
         # if weight1, weight2 are affine weights (λ, k, n), (μ, k', n')
@@ -162,40 +170,45 @@ class Alg:
         elif len(self.cartanType) == 3:
             r = self.rank - 1
         temp = sum(
-                flatten([[
-                    lambda1[i - 1] * lambda2[j - 1]
-                    * self.AInversed[i - 1,j - 1]
-                    * (self.alpha[j].norm_squared())/2
-                        for i in range(1, r + 1)]
-                        for j in range(1, r + 1)])
+            flatten(
+                [
+                    [
+                        lambda1[i - 1]
+                        * lambda2[j - 1]
+                        * self.AInversed[i - 1, j - 1]
+                        * (self.alpha[j].norm_squared())
+                        / 2
+                        for i in range(1, r + 1)
+                    ]
+                    for j in range(1, r + 1)
+                ]
             )
+        )
         if self.cartanType[0] == "G":
-            temp = temp/3
+            temp = temp / 3
         return temp
-    
+
     def ToAffineWeight(self, weight):
         # map ([λ1, λ2, ..., λr];k;n) to an affine weight
         # Only works for integral weights
         if len(weight) == 3 and len(weight[0]) == self.r:
             k = weight[1]
             n = int(weight[2])
-            finite_part = sum([weight[0][i - 1] * self.omega[i]  for i in range(1, self.r + 1)])
+            finite_part = sum([weight[0][i - 1] * self.omega[i] for i in range(1, self.r + 1)])
             lambda0 = int(k - self.ScalarProduct(finite_part, self.theta))
-            return (self.omega[0] * lambda0
-                + finite_part
-                + n * self.delta)
+            return self.omega[0] * lambda0 + finite_part + n * self.delta
         elif len(weight) == 3 and len(weight[0]) != self.r:
             print("finite piece is not rank ", self.r, flush=True)
             return
 
-
     def Tolambdakn(self, weight):
         # λ0 ωhat[0] + λi ωhat[i] --> ([λ1, λ2, ...]; k; n)
         dynkinLabelsWithDelta = weight.to_vector()
-        return (list(self.Dynkin(weight)),
-                dynkinLabelsWithDelta[0] + self.ScalarProduct(weight, self.theta),
-                dynkinLabelsWithDelta[-1]
-               )
+        return (
+            list(self.Dynkin(weight)),
+            dynkinLabelsWithDelta[0] + self.ScalarProduct(weight, self.theta),
+            dynkinLabelsWithDelta[-1],
+        )
 
     def AffineScalarProduct(self, weight1, weight2):
         v1 = self.Tolambdakn(weight1)
@@ -203,7 +216,7 @@ class Alg:
         return self.ScalarProduct(weight1, weight2) + v1[2] * v2[1] + v1[1] * v2[2]
 
     def GetMoreWeylGroupElements(self):
-        # Take the Cartesian product of the current self.W with all simple reflections 
+        # Take the Cartesian product of the current self.W with all simple reflections
         # to get more Weyl group elements
         newW = set(list(map(product, list(itertools.product(self.ws, list(self.W))))))
         if newW != set(self.W):
@@ -212,9 +225,12 @@ class Alg:
             return self.W
 
     def GetMoreTranslations(self):
-        newT = set([
-            product(tuple)
-            for tuple in list(itertools.product(list(self.T), self.simpleTranslations))])
+        newT = set(
+            [
+                product(tuple)
+                for tuple in list(itertools.product(list(self.T), self.simpleTranslations))
+            ]
+        )
         self.T = set(self.T)
         if newT != self.T:
             self.T = self.T.union(newT)
@@ -229,35 +245,264 @@ class Alg:
         self.T = sorted(list(self.T), key=lambda x: x.length())
         return self.T
 
+    def _CeilSqrtQQ(self, value):
+        target = QQ(value)
+        if target <= 0:
+            return 0
+
+        lower = 0
+        upper = 1
+        while QQ(upper) * QQ(upper) < target:
+            lower = upper
+            upper *= 2
+
+        while lower + 1 < upper:
+            mid = (lower + upper) // 2
+            if QQ(mid) * QQ(mid) >= target:
+                upper = mid
+            else:
+                lower = mid
+
+        return upper
+
+    def _FiniteCorootGramMatrix(self):
+        indices = list(range(1, self.rank))
+        gram = []
+        for i in indices:
+            row = []
+            for j in indices:
+                numerator = self.ScalarProduct(2 * self.alpha[i], 2 * self.alpha[j])
+                denominator = self.ScalarProduct(self.alpha[i], self.alpha[i]) * self.ScalarProduct(
+                    self.alpha[j], self.alpha[j]
+                )
+                row.append(QQ(numerator) / QQ(denominator))
+            gram.append(row)
+        return gram
+
+    def _TranslationCoefficientRadius(self, level, linear_coeffs, gram, max_neg_shift):
+        k = QQ(level)
+        b = QQ(self._CeilSqrtQQ(sum(QQ(d) * QQ(d) for d in linear_coeffs)))
+        G = matrix(QQ, gram)
+        G_inv = G.inverse()
+        frob_sq = sum(QQ(v) * QQ(v) for v in G_inv.list())
+        lam_lower = QQ(1) / QQ(self._CeilSqrtQQ(frob_sq))
+
+        if lam_lower <= 0:
+            raise ValueError(
+                "Failed to obtain a positive coercive bound for translation enumeration"
+            )
+
+        abs_k = abs(k)
+        a = abs_k * lam_lower / QQ(2)
+        if a <= 0:
+            raise ValueError(
+                "Failed to derive a positive quadratic bound for translation enumeration"
+            )
+
+        if k > 0:
+            disc = b * b + QQ(4) * a * QQ(max_neg_shift)
+            r_real = (b + QQ(self._CeilSqrtQQ(disc))) / (QQ(2) * a)
+            return max(0, int(r_real) + 1)
+
+        r_real = b / a
+        return max(0, int(r_real) + 1)
+
+    def _MinusDeltaN(self, level, linear_coeffs, gram, coeffs):
+        m = [QQ(c) for c in coeffs]
+        linear = sum(QQ(d) * mi for d, mi in zip(linear_coeffs, m))
+        quadratic = QQ(0)
+        for i, mi in enumerate(m):
+            for j, mj in enumerate(m):
+                quadratic += mi * QQ(gram[i][j]) * mj
+        return linear + QQ(level) * quadratic / QQ(2)
+
+    def _TranslationFromCoefficients(self, coeffs):
+        factors = [
+            self.simpleTranslations[index] ** int(coeff)
+            for index, coeff in enumerate(coeffs, start=1)
+            if int(coeff) != 0
+        ]
+        if not factors:
+            return self.one
+        return product(factors)
+
+    def _TranslationsByNShiftBnB(self, weight, order, order_min=0, return_stats=False):
+        max_neg_shift_value = QQ(order)
+        min_neg_shift_value = QQ(order_min)
+        if max_neg_shift_value < min_neg_shift_value:
+            return {"translations": [], "stats": {}} if return_stats else []
+
+        level = QQ(self.AffineDynkin(weight)[0] + self.ScalarProduct(weight, self.theta))
+        if level == 0:
+            raise ValueError("Translation enumeration by n-shift requires non-zero level")
+
+        linear_coeffs = [QQ(value) for value in self.AffineDynkin(weight)[1 : self.rank]]
+        gram = self._FiniteCorootGramMatrix()
+        radius = self._TranslationCoefficientRadius(
+            level=level,
+            linear_coeffs=linear_coeffs,
+            gram=gram,
+            max_neg_shift=max_neg_shift_value,
+        )
+
+        n = len(linear_coeffs)
+        if n == 0:
+            translations = [self.one] if min_neg_shift_value <= 0 <= max_neg_shift_value else []
+            if return_stats:
+                return {"translations": translations, "stats": {"radius": 0}}
+            return translations
+
+        try:
+            G = matrix(QQ, gram)
+            d_vec = vector(QQ, linear_coeffs)
+            center_vec = -(G.solve_right(d_vec)) / level
+            center = [QQ(center_vec[i]) for i in range(n)]
+        except Exception:
+            center = [QQ(0) for _ in range(n)]
+
+        coeffs = [0 for _ in range(n)]
+        selected = {}
+        stats = {
+            "radius": int(radius),
+            "dimension": int(n),
+            "box_points": int((2 * int(radius) + 1) ** int(n)),
+            "visited_leaves": 0,
+            "pruned_branches": 0,
+            "accepted": 0,
+        }
+
+        gram_qq = [[QQ(gram[i][j]) for j in range(n)] for i in range(n)]
+        tail_quad_lower = [QQ(0) for _ in range(n + 1)]
+        tail_quad_upper = [QQ(0) for _ in range(n + 1)]
+        R = QQ(radius)
+        for depth in range(n - 1, -1, -1):
+            lower = tail_quad_lower[depth + 1]
+            upper = tail_quad_upper[depth + 1]
+            qii = level * gram_qq[depth][depth] / QQ(2)
+            term = qii * R * R
+            if term >= 0:
+                upper += term
+            else:
+                lower += term
+            for j in range(depth + 1, n):
+                band = abs(level * gram_qq[depth][j]) * R * R
+                lower -= band
+                upper += band
+            tail_quad_lower[depth] = lower
+            tail_quad_upper[depth] = upper
+
+        current_const = QQ(0)
+        current_b = [QQ(v) for v in linear_coeffs]
+
+        def partial_bounds(depth):
+            if depth == n:
+                return current_const, current_const
+
+            lower = QQ(current_const) + tail_quad_lower[depth]
+            upper = QQ(current_const) + tail_quad_upper[depth]
+            for i in range(depth, n):
+                delta = abs(current_b[i]) * R
+                lower -= delta
+                upper += delta
+            return lower, upper
+
+        ordered_values_by_dim = []
+        base_values = list(range(-radius, radius + 1))
+        for i in range(n):
+            values = list(base_values)
+            values.sort(key=lambda x: (abs(QQ(x) - center[i]), abs(x), x))
+            ordered_values_by_dim.append(values)
+
+        def dfs(depth, prefix_norm_sq):
+            nonlocal current_const, current_b
+            if prefix_norm_sq > radius * radius:
+                stats["pruned_branches"] += 1
+                return
+
+            low, high = partial_bounds(depth)
+            if high < min_neg_shift_value or low > max_neg_shift_value:
+                stats["pruned_branches"] += 1
+                return
+
+            if depth == n:
+                stats["visited_leaves"] += 1
+                neg_shift = self._MinusDeltaN(level, linear_coeffs, gram, tuple(coeffs))
+                if min_neg_shift_value <= neg_shift <= max_neg_shift_value:
+                    key = tuple(int(c) for c in coeffs)
+                    selected[key] = self._TranslationFromCoefficients(key)
+                    stats["accepted"] += 1
+                return
+
+            for value in ordered_values_by_dim[depth]:
+                coeffs[depth] = int(value)
+                value_qq = QQ(value)
+                old_const = current_const
+                old_b = list(current_b)
+
+                current_const = (
+                    old_const
+                    + current_b[depth] * value_qq
+                    + level * gram_qq[depth][depth] * value_qq * value_qq / QQ(2)
+                )
+                for j in range(depth + 1, n):
+                    current_b[j] = old_b[j] + level * gram_qq[j][depth] * value_qq
+
+                dfs(depth + 1, prefix_norm_sq + int(value) * int(value))
+                current_const = old_const
+                current_b = old_b
+
+            coeffs[depth] = 0
+
+        dfs(0, 0)
+        translations = sorted(selected.values(), key=lambda x: x.length())
+        if return_stats:
+            return {"translations": translations, "stats": stats}
+        return translations
+
     def GetTranslationsBynShift(self, weight, order=1, max_m=5, order_min=None):
-    # given <weight> (likely a affine dominant weight)
-    # find the translations that shift the n-value by
-    # 0 <= -Δn <= order
-    # Note that for affine dominant weight, -Δn >= 0
-        import itertools
-        print(">>> Getting translations for {} to order {}".format(
-            weight, order
-            ), flush=True)
+        print(">>> Getting translations for {} to order {}".format(weight, order), flush=True)
         self.order = order
-        # the (0, ) is a place holder, so m[1] corresponds to λ[1]
-        m_abs = var(["m%s" % i for i in range(1, self.r + 1)])
-        # nShift = Δn =
-        # = - Sum[m[i]λ[i],i] - (k/2) Sum[m[i]m[j](αv[i], αv[j]), i,j]
-        # note the - sign
-        neg_shift = - self.nShift(weight, (0,) + m_abs)
-
-        # m[i] 可正可负
-        ranges = (range(-max_m, max_m+1) for _ in range(self.r))
-        # 穷举所有的 m[1], ..., m[r]
-        mgrid = itertools.product(*ranges)
-
-        if not order_min:
+        if order_min is None:
             order_min = 0
-        ms = ((0,) + m for m in mgrid
-              if order_min <= neg_shift.subs({m_abs[i]:m[i] for i in range(0, self.r)}) <= order
-             )
+        max_neg_shift_value = QQ(order)
+        min_neg_shift_value = QQ(order_min)
+        if max_neg_shift_value < min_neg_shift_value:
+            print(">>> Found translations =  []", flush=True)
+            return []
 
-        Ts = [product([self.simpleTranslations[i]**m[i] for i in range(1, self.rank)]) for m in ms]
+        level = QQ(self.AffineDynkin(weight)[0] + self.ScalarProduct(weight, self.theta))
+        linear_coeffs = [QQ(value) for value in self.AffineDynkin(weight)[1 : self.rank]]
+        gram = self._FiniteCorootGramMatrix()
+        radius = self._TranslationCoefficientRadius(
+            level=level,
+            linear_coeffs=linear_coeffs,
+            gram=gram,
+            max_neg_shift=max_neg_shift_value,
+        )
+
+        dimension = len(linear_coeffs)
+        box_points = (2 * int(radius) + 1) ** int(dimension)
+        if box_points > 2000000:
+            result = self._TranslationsByNShiftBnB(
+                weight,
+                order=max_neg_shift_value,
+                order_min=min_neg_shift_value,
+                return_stats=False,
+            )
+            print(">>> Found translations = ", result, flush=True)
+            return result
+
+        ranges = [range(-radius, radius + 1) for _ in linear_coeffs]
+        selected = {}
+        for coeffs in itertools.product(*ranges):
+            neg_shift = self._MinusDeltaN(level, linear_coeffs, gram, coeffs)
+            if neg_shift < min_neg_shift_value or neg_shift > max_neg_shift_value:
+                continue
+            selected[tuple(int(coeff) for coeff in coeffs)] = self._TranslationFromCoefficients(
+                coeffs
+            )
+
+        Ts = [selected[key] for key in sorted(selected.keys())]
         Ts = sorted(Ts, key=lambda x: x.length())
         print(">>> Found translations = ", Ts, flush=True)
         return Ts
@@ -270,23 +515,30 @@ class Alg:
         # n -> n + Δn
         # Δn = - Sum[m[i]λ[i],i] - (k/2) Sum[m[i]m[j](αv[i], αv[j]), i,j]
         # Be careful with the negative sign: when weight is dominant, Δn <= 0
-        
+
         # self.ScalarProduct() just perform the finite ScalarProduct.
         # For an affine dominant weight, w1, ..., wr will always decrease n.
         alpha = self.alpha
         # k = λ[0] + (λ, θ)
         k = self.AffineDynkin(weight)[0] + self.ScalarProduct(weight, self.theta)
-        print("k = {}".format(k));
-        return (
-            - sum([m[i] * self.AffineDynkin(weight)[i] for i in range(1, self.rank)])
-            - (k/2) * sum([sum([
-            m[i] * m[j]
-            * self.ScalarProduct(2 * alpha[i], 2 * alpha[j])
-            * self.ScalarProduct(alpha[i], alpha[i])**(-1)
-            * self.ScalarProduct(alpha[j], alpha[j])**(-1)
-            for i in range(1, self.rank)])
-            for j in range(1, self.rank)])
-            )
+        print("k = {}".format(k))
+        return -sum([m[i] * self.AffineDynkin(weight)[i] for i in range(1, self.rank)]) - (
+            k / 2
+        ) * sum(
+            [
+                sum(
+                    [
+                        m[i]
+                        * m[j]
+                        * self.ScalarProduct(2 * alpha[i], 2 * alpha[j])
+                        * self.ScalarProduct(alpha[i], alpha[i]) ** (-1)
+                        * self.ScalarProduct(alpha[j], alpha[j]) ** (-1)
+                        for i in range(1, self.rank)
+                    ]
+                )
+                for j in range(1, self.rank)
+            ]
+        )
 
     def GetWeylGroup(self, l, style="height"):
         # for finite Weyl group
@@ -295,7 +547,7 @@ class Alg:
             return self.W
 
         # for affine Weyl group
-        if style=="semi-direct-product":
+        if style == "semi-direct-product":
             self.GetTranslationsByLength(l)
             self.W = [product(tuple) for tuple in itertools.product(self.WFinite, self.T)]
             self.W = sorted(self.W, key=lambda x: x.length())
@@ -325,21 +577,22 @@ class Alg:
         start1 = time.time()
         W = [product(tuple) for tuple in itertools.product(self.WFinite, T)]
         end1 = time.time()
-        print("\t>>> Semi-direct product completed: %s s" % str(end1-start1), flush=True)
+        print("\t>>> Semi-direct product completed: %s s" % str(end1 - start1), flush=True)
         end = time.time()
-        print(">>> Weyl group created: total %s s" % str(end - start),
-            "\n>>> Group size: %s\n" % len(W), flush=True)
+        print(
+            ">>> Weyl group created: total %s s" % str(end - start),
+            "\n>>> Group size: %s\n" % len(W),
+            flush=True,
+        )
         return W
 
     get_Weyl_group_for_q_series = GetWeylGroupForqSeries
-
 
     def SaveWFinite(self):
         with open("finite weyl group/%s.dat" % self.cartanType[:2], "wb") as file:
             pickle.dump([w.reduced_word() for w in self.WFinite], file)
 
     save_W_finite = SaveWFinite
-
 
     def LoadWFinite(self):
         file_name = "finite weyl group/%s.dat" % self.cartanType[:2]
@@ -357,12 +610,10 @@ class Alg:
         if not order:
             order = self.order
         print(">>> Saving translations for {} to order {}".format(weight, order), flush=True)
-        HWString = str(self.llambda).replace("Lambda", "omega").replace("*","")
+        HWString = str(self.llambda).replace("Lambda", "omega").replace("*", "")
 
         filename = "translations/{}-({})-qorder{}.dat".format(
-            str(self.cartanType).replace(" ",""),
-            HWString,
-            order
+            str(self.cartanType).replace(" ", ""), HWString, order
         )
         with open(filename, "wb") as file:
             pickle.dump([w.reduced_word() for w in self.T], file)
@@ -371,31 +622,26 @@ class Alg:
     save_translations = SaveT
 
     def SaveW(self):
-        HWString = str(self.llambda).replace("Lambda", "omega").replace("*","")
+        HWString = str(self.llambda).replace("Lambda", "omega").replace("*", "")
 
         filename = "affine weyl group/{}-({})-qorder{}.dat".format(
-            str(self.cartanType).replace(" ",""),
-            HWString,
-            self.order
+            str(self.cartanType).replace(" ", ""), HWString, self.order
         )
         with open(filename, "wb") as file:
             pickle.dump([w.reduced_word() for w in self.W], file)
 
     save_W = SaveW
 
-
     def SaveWDen(self, order=None):
         if not order:
             order = self.order
         filename = "affine weyl group/{}-rho-qorder{}.dat".format(
-            str(self.cartanType).replace(" ",""),
-            order
+            str(self.cartanType).replace(" ", ""), order
         )
         with open(filename, "wb") as file:
             pickle.dump([w.reduced_word() for w in self.W_denonminator], file)
 
     save_W_denominator = SaveWDen
-
 
     def SaveFinitePositiveRoots(self, order=None):
         print(">>> Saving finite positive roots to file.")
@@ -403,8 +649,8 @@ class Alg:
         roots_str = str(self.finite_positive_roots)
         roots_str = "{" + roots_str[1:]
         roots_str = roots_str[:-1] + "}"
-        filename = "finite positive roots/" + str(self.cartanType).replace(" ","") + ".txt"
-        file2 = open(filename, 'w')
+        filename = "finite positive roots/" + str(self.cartanType).replace(" ", "") + ".txt"
+        file2 = open(filename, "w")
         file2.write(roots_str)
         file2.close()
         print(">>> file name = ", filename, "\n")
@@ -414,12 +660,10 @@ class Alg:
 
     def LoadW(self, llambda, order):
         print(">>> Loading affine W from file.", flush=True)
-        HWString = str(llambda).replace("Lambda", "omega").replace("*","")
+        HWString = str(llambda).replace("Lambda", "omega").replace("*", "")
 
         filename = "affine weyl group/{}-({})-qorder{}.dat".format(
-            str(self.cartanType).replace(" ",""),
-            HWString,
-            order
+            str(self.cartanType).replace(" ", ""), HWString, order
         )
         with open(filename, "rb") as file:
             WReducedWord = pickle.load(file)
@@ -427,21 +671,22 @@ class Alg:
             file.close()
         print(">>> Successfully loaded affine Weyl from file.\n", flush=True)
         return self.W
+
     load_W = LoadW
 
     def LoadT(self, llambda, order):
-        print(">>> Loading translations for {} to order {} from file.".format(llambda, order), flush=True)
-        HWString = str(llambda).replace("Lambda", "omega").replace("*","")
+        print(
+            ">>> Loading translations for {} to order {} from file.".format(llambda, order),
+            flush=True,
+        )
+        HWString = str(llambda).replace("Lambda", "omega").replace("*", "")
 
         filename = "translations/{}-({})-qorder{}.dat".format(
-            str(self.cartanType).replace(" ",""),
-            HWString,
-            order
+            str(self.cartanType).replace(" ", ""), HWString, order
         )
         with open(filename, "rb") as file:
             reduced_words = pickle.load(file)
-            self.T = [self.WW.from_reduced_word(word)
-                      for word in reduced_words]
+            self.T = [self.WW.from_reduced_word(word) for word in reduced_words]
             file.close()
         print(">>> Successfully loaded translations from file.\n", flush=True)
         return self.T
@@ -451,30 +696,31 @@ class Alg:
     def LoadWDen(self, order):
         print("\t>>> Loading W_denonminator from file.", flush=True)
         filename = "affine weyl group/{}-rho-qorder{}.dat".format(
-            str(self.cartanType).replace(" ",""),
-            order
+            str(self.cartanType).replace(" ", ""), order
         )
         with open(filename, "rb") as file:
             WReducedWord = pickle.load(file)
             self.W_denonminator = [self.WW.from_reduced_word(word) for word in WReducedWord]
             file.close()
         print("\t>>> Successfully loaded affine Weyl_denominator from file.", flush=True)
-    load_W_denominator = LoadWDen
 
+    load_W_denominator = LoadWDen
 
     def RemoveDelta(self, weight):
         return sum(
-            [list(weight.to_vector())[0:self.rank][i] 
-             * list(self.omega)[i] for i in range(self.rank)]
+            [
+                list(weight.to_vector())[0 : self.rank][i] * list(self.omega)[i]
+                for i in range(self.rank)
+            ]
         )
-    
+
     def Reflection(self, root):
         # returns the reflection operation associated to finite/affine root
         return self.WW.from_reduced_word(root.associated_reflection())
-    
+
     def WeylToList(self, w):
         return w.reduced_word()
-    
+
     def ExtractLastw(self, w):
         ind = w.reduced_word()
         if len(ind) == 0:
@@ -483,7 +729,7 @@ class Alg:
             return [self.one, w]
 
         return [self.WW.from_reduced_word(ind[:-1]), self.WW.from_reduced_word([ind[-1]])]
-    
+
     # def MaxRep(self, w, subgroup):
     #     temp = w
     #     coset = [w * s for s in subgroup]
@@ -504,11 +750,11 @@ class Alg:
 
     def MinRep(self, w, subgroup):
         return min([w * s for s in subgroup], key=lambda w: w.length())
-    
+
     def BruhatDescendents(self, w):
-    # list all weyl group element that is bruhat-larger-than-or-equal-to w
+        # list all weyl group element that is bruhat-larger-than-or-equal-to w
         return [wp for wp in self.W if w.bruhat_le(wp) and not wp.bruhat_le(w)]
-    
+
     def P(self, x, y):
         # invoke the KL polynomial from Coxeter3
         WW = self.WWCoxeter3
@@ -522,26 +768,25 @@ class Alg:
             return WW.kazhdan_lusztig_polynomial(self.WeylToList(x), self.WeylToList(y))
 
     def Pslash(self, x, y):
-    # extract the (l(y) - l(x) - 1)/2 order term in the P(x, y)
-        poly = self.P(x,y)
+        # extract the (l(y) - l(x) - 1)/2 order term in the P(x, y)
+        poly = self.P(x, y)
         if poly in ZZ:
-            if 0 == (y.length() - x.length() - 1)/2:
+            if 0 == (y.length() - x.length() - 1) / 2:
                 return poly
             else:
                 return 0
         q = poly.variables()[0]
-        if poly.degree(q) == (y.length() - x.length() - 1)/2:
+        if poly.degree(q) == (y.length() - x.length() - 1) / 2:
             # note that Coxeter3's P(x, y) is Dense univariate polynomials over Z
             # its .leading_coefficient() doesn't need an argument
-            return (poly.leading_coefficient()) * q**(poly.degree(q))
+            return (poly.leading_coefficient()) * q ** (poly.degree(q))
         else:
             return 0
 
-    
     def Qslash(self, x, y):
-    # Qslash(x, y) = Pslash(x, y), according to Vos and Driel
-        return self.Pslash(x,y)
-    
+        # Qslash(x, y) = Pslash(x, y), according to Vos and Driel
+        return self.Pslash(x, y)
+
     @cached_method
     def Q(self, x, y, method=None):
         # Q is the inverse polynomial of the KL polynomial P
@@ -559,26 +804,30 @@ class Alg:
         # Q(x, x) = 1, below eq (A.11)
         if x == y:
             return 1
-        # when stlye = "coxeter3", force the program to 
+        # when stlye = "coxeter3", force the program to
         # compute the invpol using coxeter3
         # without reading the saved values
         if method == "coxeter3":
             print("Using cox.invpol(x,y) directly.", flush=True)
-            return self.cox.invpol(x,y)
+            return self.cox.invpol(x, y)
 
         if method == "recursive":
-            print("Computing Q by recursion; (x, y) = ", (x,y), flush=True)
+            print("Computing Q by recursion; (x, y) = ", (x, y), flush=True)
             [yy, s] = self.ExtractLastw(y)
             if self.lt(x * s, x):
                 # c = 1
-                result = (self.Q(x*s, yy)
+                result = (
+                    self.Q(x * s, yy)
                     - q * self.Q(x, yy)
-                    + q * sum(
-                        [self.Qslash(x, z) * self.Q(z, yy)
-                          for z in self.WW.bruhat_interval(x, y)  # x < z <= y
-                            if self.lt(x, z) and self.lt(z, z*s)] # zs > z
+                    + q
+                    * sum(
+                        [
+                            self.Qslash(x, z) * self.Q(z, yy)
+                            for z in self.WW.bruhat_interval(x, y)  # x < z <= y
+                            if self.lt(x, z) and self.lt(z, z * s)
+                        ]  # zs > z
                     )
-                   )
+                )
             else:
                 # c = 0
                 result = self.Q(x, yy)
@@ -586,10 +835,10 @@ class Alg:
 
         # Default: when method = None
         # read saved data if available
-        if (x,y) in self.QData.keys():
-            return self.QData[(x,y)]
+        if (x, y) in self.QData.keys():
+            return self.QData[(x, y)]
         # If no available saved Data, compute using coxeter3
-        result = self.cox.invpol(x,y)
+        result = self.cox.invpol(x, y)
         if floor(time.time()) % 10 == 0:
             print("Random status check: computing (x, y) = ", (x, y), flush=True)
 
@@ -599,23 +848,21 @@ class Alg:
 
         # Save new result of Q(x,y) to self.QData
         if (x, y) not in self.QData.keys() and x.bruhat_le(y):
-            self.QData[(x,y)] = result
+            self.QData[(x, y)] = result
         return result
-    
+
     def QSave(self):
-        print("Saving QData to file.",
-              str(self.cartanType) + '.dat', flush=True)
-        with open(str(self.cartanType) + '.dat', 'wb') as f:
+        print("Saving QData to file.", str(self.cartanType) + ".dat", flush=True)
+        with open(str(self.cartanType) + ".dat", "wb") as f:
             pickle.dump(self.QData, f)
             print("QData saved: file name = ", f.name, "\n", flush=True)
         return
-    
+
     def QLoad(self):
         start = time.time()
-        print("\t>>> Loading inverse KL polynomials Q from file <<<",
-            flush=True)
+        print("\t>>> Loading inverse KL polynomials Q from file <<<", flush=True)
         try:
-            with open(str(self.cartanType) + '.dat', 'rb') as f:
+            with open(str(self.cartanType) + ".dat", "rb") as f:
                 self.QData = pickle.load(f)
         except:
             end = time.time()
@@ -630,17 +877,15 @@ class Alg:
     def Qtilde(self, x, y, subgroup):
         xbar = self.MaxRep(x, subgroup)
         coset = [y * s for s in subgroup]
-        result = sum(
-            [self.Q(xbar, z) * int((-1)**(xbar.length() - z.length())) for z in coset]
-        )
+        result = sum([self.Q(xbar, z) * int((-1) ** (xbar.length() - z.length())) for z in coset])
         if "full_simplify" in dir(result):
             result = result.full_simplify()
         return result
 
     def lt(self, x, y):
         # check if x < y
-        return (x.bruhat_le(y) and not y.bruhat_le(x))
-    
+        return x.bruhat_le(y) and not y.bruhat_le(x)
+
     def GetLambda(self, llambda):
         # lambda is a reserved word, use llambda instead
         # =====================================================================
@@ -649,49 +894,52 @@ class Alg:
         # such that Λ + ρ is dominant
         # i.e., Λ + ρ has NON-NEGATIVE (can be zero) Dynkin labels
         # =====================================================================
-        # This function relies on self.W
-        # Use self.GetWeylGroup() to generate a reasonable self.W
         start = time.time()
         print(">>> Creating Lambda.", flush=True)
-        # If λ itself is already dominant
-        # then λ+ρ = id(w + ρ) must be dominant
-        # Hence Λ = λ
         self.llambda = llambda
-        if all([i > 0 for i in self.RemoveDelta(llambda).coefficients()]):
+        finite_coefficients = list((llambda).to_vector()[0 : self.rank])
+        if all(coeff > 0 for coeff in finite_coefficients):
             self.wToLambda = self.one
             self.wTollambda = self.one
             print("wTollambda = ", self.wTollambda, ", Λ = ", self.llambda, flush=True)
             return llambda
 
-        # for general cases
         print("Finding Λ for generic λ", flush=True)
-        W = self.WW[0:50]
         rho = self.rho
-        orbitUnderWeylDot = [(w.action(llambda + rho) - rho) for w in W]
-        for weight in orbitUnderWeylDot:
-            # .coefficients only collect non-zero Dynkin labels
-            reducedCoefficients = self.RemoveDelta(weight).coefficients()
-            if all(c >= -1 for c in reducedCoefficients):
-                self.Lambda = weight
-                index = orbitUnderWeylDot.index(weight)
-                self.wToLambda = W[index]         # wToLamda(λ + ρ) - ρ = Λ
-                                                  # wToLambda(λ+ρ) = Λ+ρ
-                self.wTollambda = self.wToLambda.inverse()
-                print("wTollambda = ", self.wTollambda, ", Λ = ", self.Lambda, flush=True)
-                                                  # λ+ρ = wToLambda^{-1}(Λ+ρ)
-                end = time.time()
-                print(">>> Lambda created: %s s" % str(end - start), "\n", flush=True)
-                return weight
-        raise Exception("No Lambda found: increase the size of Weyl group")
+        lambda_plus_rho = llambda + rho
+        checked = 0
+        max_length = 0
+        max_steps = 1000
+
+        while checked < max_steps:
+            elements_of_length = list(self.WW.elements_of_length(max_length))
+            elements_of_length.sort(key=lambda w: tuple(int(i) for i in w.reduced_word()))
+            for w_to_Lambda in elements_of_length:
+                checked += 1
+                acted_weight = w_to_Lambda.action(lambda_plus_rho) - rho
+                reduced_coefficients = list(acted_weight.to_vector()[0 : self.rank])
+                if all(coeff >= -1 for coeff in reduced_coefficients):
+                    self.Lambda = acted_weight
+                    self.wToLambda = w_to_Lambda
+                    self.wTollambda = self.wToLambda.inverse()
+                    print("wTollambda = ", self.wTollambda, ", Λ = ", self.Lambda, flush=True)
+                    end = time.time()
+                    print(">>> Lambda created: %s s" % str(end - start), "\n", flush=True)
+                    return acted_weight
+                if checked >= max_steps:
+                    break
+            max_length += 1
+
+        raise Exception("Failed to find dominant Lambda by bounded affine Weyl search")
 
     # alias
     get_lambda = GetLambda
-    
+
     def GetWLambda0(self, Lambda):
-    # returns the isometric subgroup that fixes Λ
-    # depends on the size of self.W
-    # WLambda0 is used in Qtilde computation
-    # and is crucial to get it right
+        # returns the isometric subgroup that fixes Λ
+        # depends on the size of self.W
+        # WLambda0 is used in Qtilde computation
+        # and is crucial to get it right
         start = time.time()
         print(">>> Creating WLambda0.")
         self.WLambda0 = [w for w in self.W if w.action(Lambda + self.rho) - self.rho == Lambda]
@@ -701,10 +949,11 @@ class Alg:
         print("W_Lambda0 = ", self.WLambda0)
         print(">>> WLambda0 created: %s s" % str(end - start), "\n")
         return self.WLambda0
-    #alias
+
+    # alias
     get_W_Lambda_0 = GetWLambda0
 
-    def CharacterNum(self, llambda, order=None):
+    def CharacterNum(self, llambda, order=None, Lambda=None, wTollambda=None):
         # computes the numerator of the KL formula
         # which is a sum over affine Weyl (sub)group
         # or sum over a lots of weights
@@ -712,20 +961,29 @@ class Alg:
         rho = self.rho
 
         self.llambda = llambda
-        self.Lambda = self.GetLambda(llambda)
+        if Lambda is not None:
+            self.Lambda = Lambda
+            self.wTollambda = wTollambda
+        else:
+            self.Lambda = self.GetLambda(llambda)
         Lambda = self.Lambda
         self.order = order
         # If an <order> param is specified, regenerate the self.T
         # and self.W based on the shift in n-value of Λ+ρ up to
         # the <order> param
-        if order:
-            try:
-                self.T = self.load_translations(llambda, order)
-            except:
-                print("\t>>> File not found. Building translations from scratch.")
-                order_min = self.Tolambdakn(self.Lambda + self.rho)[-1] - self.Tolambdakn(self.llambda)[-1]
-                self.T = self.get_translations_by_n_shift(Lambda + rho, order_min + order, order_min = None)
-        self.W = self.GetWeylGroupForqSeries(order=order, T = self.T)
+        try:
+            self.T = self.load_translations(llambda, order)
+        except:
+            print("\t>>> File not found. Building translations from scratch.")
+            order_min = (
+                self.Tolambdakn(self.Lambda + self.rho)[-1] - self.Tolambdakn(self.llambda)[-1]
+            )
+            self.T = self.get_translations_by_n_shift(
+                Lambda + rho, order_min + order, order_min=None
+            )
+            print("\t>>> self.T")
+            print(self.T)
+        self.W = self.GetWeylGroupForqSeries(order=order, T=self.T)
         # if order is not specified, assume self.W is manually set
         W = self.W
 
@@ -744,8 +1002,14 @@ class Alg:
         end = time.time()
         print(">>> LambdaOrbitUnderWeylDot created: %s s." % str(end - start), "\n")
 
-        # weights that will go into the sum
-        # element in cosets are the minimal representations
+        # Main objective: find the cosets
+        # Strategy: look at the dot-action image set W.(Λ + rho)
+        # w's having the same w.(Λ + ρ) are in the same cosets
+        # for any coset, use the shorted representative
+        # scan the image set W.(Λ + ρ)
+        # - record unique element w.(Λ+ρ)
+        # - record the corresponding w
+        # - if there is a shorter w, replace the existing w
         weightsToBeSummed = []
         cosets = []
         start = time.time()
@@ -759,6 +1023,7 @@ class Alg:
             else:
                 ind = weightsToBeSummed.index(weight)
                 if w.length() < cosets[ind].length():
+                    # keep the shorter w
                     cosets[ind] = w
         end = time.time()
         print(">>> cosets created: %s s" % str(end - start))
@@ -780,12 +1045,20 @@ class Alg:
         print(">>> Creating numerator.")
         start = time.time()
         chunk_size = 20  # the size of each chunk
+
         def process_chunk(chunk):
-            return [{wp.action(self.Lambda + rho) - rho: self.Qtilde(self.wTollambda, wp, self.WLambda0)} for wp in chunk]
+            return [
+                {
+                    wp.action(self.Lambda + rho) - rho: self.Qtilde(
+                        self.wTollambda, wp, self.WLambda0
+                    )
+                }
+                for wp in chunk
+            ]
 
         self.num = []  # list to collect results
         for i in tqdm(range(0, len(WeylToBeSummed), chunk_size), leave=True):
-            chunk = WeylToBeSummed[i:i+chunk_size]  # get chunk WeylToBeSummed
+            chunk = WeylToBeSummed[i : i + chunk_size]  # get chunk WeylToBeSummed
             self.num = self.num + process_chunk(chunk)
 
         end = time.time()
@@ -801,24 +1074,19 @@ class Alg:
         try:
             # self.load_W_denominator(order)
             self.T_denonminator = self.get_translations_by_n_shift(rho, order)
-            self.W_denonminator = self.get_Weyl_group_for_q_series(
-                T = self.T_denonminator
-            )
+            self.W_denonminator = self.get_Weyl_group_for_q_series(T=self.T_denonminator)
         except:
             print("\t>>> File not found; creating W_denonminator.", flush=True)
             self.T_denonminator = self.get_translations_by_n_shift(rho, order)
-            self.W_denonminator = self.get_Weyl_group_for_q_series(
-                T = self.T_denonminator
-            )
-        den = [{w.action(rho) - rho:  (-1)**(w.length() % 2) }
-                for w in self.W_denonminator]
+            self.W_denonminator = self.get_Weyl_group_for_q_series(T=self.T_denonminator)
+        den = [{w.action(rho) - rho: (-1) ** (w.length() % 2)} for w in self.W_denonminator]
         self.den = den
         print(">>> Denominator created.\n", flush=True)
         return den
 
     Kazhdan_Lusztig_denominator = CharacterDen
 
-    def Kazhdan_Lusztig(self, order = 2):
+    def Kazhdan_Lusztig(self, order=2):
         print("Computing Kazhdan-Lusztig to order ", order)
         start = time.time()
         q = var("q")
@@ -826,12 +1094,13 @@ class Alg:
         numerator = self.progress_bar(
             self.num,
             lambda chunk: sum(
-            [SR(list(entry.values())[0]).subs({q:1})
-                * self.character_contribution_from_weight(
-                    list(entry.keys())[0]
-                )
-            for entry in chunk]),
-            100
+                [
+                    SR(list(entry.values())[0]).subs({q: 1})
+                    * self.character_contribution_from_weight(list(entry.keys())[0])
+                    for entry in chunk
+                ]
+            ),
+            100,
         )
         end1 = time.time()
         print(end1 - start)
@@ -839,22 +1108,22 @@ class Alg:
         denominator = self.progress_bar(
             self.den,
             lambda chunk: sum(
-            [SR(list(entry.values())[0]).subs({q:1})
-                * self.character_contribution_from_weight(
-                    list(entry.keys())[0]
-                )
-            for entry in chunk]),
-            100
+                [
+                    SR(list(entry.values())[0]).subs({q: 1})
+                    * self.character_contribution_from_weight(list(entry.keys())[0])
+                    for entry in chunk
+                ]
+            ),
+            100,
         )
 
         end2 = time.time()
         print(end2 - end1, flush=True)
-        ind = simplify((numerator/denominator).taylor(q,0,order))
+        ind = simplify((numerator / denominator).taylor(q, 0, order))
         end = time.time()
         print(end - end2, flush=True)
         print(">>> Completed: %s s" % str(end - start), flush=True)
         return ind
-
 
     def SaveNum(self):
         # after calling self.Kazhdan_Lusztig_numerator, save the numerator info into a txt file
@@ -863,9 +1132,11 @@ class Alg:
         num_str = "{" + num_str[1:]
         num_str = num_str[:-1] + "}"
 
-        HWString = str(self.llambda).replace("Lambda", "omega").replace("*","")
-        filename = ("numerators/num-" + str(self.cartanType).replace(" ","") + "-(" + HWString + ").txt")
-        file = open(filename, 'w')
+        HWString = str(self.llambda).replace("Lambda", "omega").replace("*", "")
+        filename = (
+            "numerators/num-" + str(self.cartanType).replace(" ", "") + "-(" + HWString + ").txt"
+        )
+        file = open(filename, "w")
         file.write(num_str)
 
         file.close()
@@ -881,8 +1152,8 @@ class Alg:
         den_str = str(self.den).replace(":", ",")
         den_str = "{" + den_str[1:]
         den_str = den_str[:-1] + "}"
-        filename = "denominators/den-" + str(self.cartanType).replace(" ","") + ".txt"
-        file2 = open(filename, 'w')
+        filename = "denominators/den-" + str(self.cartanType).replace(" ", "") + ".txt"
+        file2 = open(filename, "w")
         file2.write(den_str)
         file2.close()
         print(">>> file name = ", filename, "\n")
@@ -895,36 +1166,45 @@ class Alg:
         z = [var("b" + str(i)) for i in range(0, self.r + 1)]
         q = var("q")
         return prod(
-                    [z[i]**(self.AffineScalarProduct(
-                                weight, L.simple_roots()[i])
-                            )
-                     for i in range(1, self.r + 1)]
-                ) *  q**( - self.Tolambdakn(weight)[-1])
-
+            [
+                z[i] ** (self.AffineScalarProduct(weight, L.simple_roots()[i]))
+                for i in range(1, self.r + 1)
+            ]
+        ) * q ** (-self.Tolambdakn(weight)[-1])
 
     def CharContribFromWeightSeries(self, V, weight, w, order):
         # get the contribution from the weights w.(weight - nδ), n = 0, 1, ..., order:
         # - V is the integrable module in question
-        # - w is an element of the finite Weyl group 
+        # - w is an element of the finite Weyl group
         # A weight with finite Dynkin label [λ1, ..., λr] contributes z1^λ1
         # z2^λ2 ...
-        
+
         # work out the multiplicity of the weights w, w-δ, w-2δ, ..., w-order*δ
         string = V.strings(order)[weight]
         delta = self.delta
         L = self.weight_lattice
         z = [var("z" + str(i)) for i in range(0, self.rank + 1)]
         max_n = min(order, len(string) - 1)
-        return sum([string[n]
+        return sum(
+            [
+                string[n]
                 * prod(
-                    [z[i]**(self.AffineScalarProduct(w.action(weight - n * delta), L.simple_roots()[i]))
-                     for i in range(1, self.rank)]
+                    [
+                        z[i]
+                        ** (
+                            self.AffineScalarProduct(
+                                w.action(weight - n * delta), L.simple_roots()[i]
+                            )
+                        )
+                        for i in range(1, self.rank)
+                    ]
                 )
-                *  q**( - self.Tolambdakn(w.action(weight  - n * delta))[-1])
-         for n in range(0, max_n + 1)])
+                * q ** (-self.Tolambdakn(w.action(weight - n * delta))[-1])
+                for n in range(0, max_n + 1)
+            ]
+        )
 
     character_contribution_from_weight_series = CharContribFromWeightSeries
-
 
     def CharacterOfIntegrableModule(self, V, order):
         # Return coefficients accurate up to q^order using exact prefix filtering:
@@ -940,9 +1220,16 @@ class Alg:
             return 0
 
         wMaxDoms = V.dominant_maximal_weights()
-        self.T = list(set(itertools.chain(
-            *[self.GetTranslationsBynShift(wMaxDom, target_order, order_min=0) for wMaxDom in wMaxDoms])
-        ))
+        self.T = list(
+            set(
+                itertools.chain(
+                    *[
+                        self.GetTranslationsBynShift(wMaxDom, target_order, order_min=0)
+                        for wMaxDom in wMaxDoms
+                    ]
+                )
+            )
+        )
         self.W = self.GetWeylGroup(0, "qSeries")
 
         # Build orbit representatives and compute their leading q-degree d0.
@@ -961,7 +1248,7 @@ class Alg:
             selected_reps = []
             max_needed = -1
             for wrep in representatives.values():
-                d0 = - self.Tolambdakn(wrep.action(weight))[-1]
+                d0 = -self.Tolambdakn(wrep.action(weight))[-1]
                 if d0 > target_order:
                     continue
                 nmax = target_order - d0
@@ -973,7 +1260,9 @@ class Alg:
             reps_by_weight[weight] = selected_reps
             max_needed_depth_by_weight[weight] = max_needed
 
-        global_needed_n = max(max_needed_depth_by_weight.values()) if max_needed_depth_by_weight else -1
+        global_needed_n = (
+            max(max_needed_depth_by_weight.values()) if max_needed_depth_by_weight else -1
+        )
         if global_needed_n < 0:
             return 0
 
@@ -992,15 +1281,24 @@ class Alg:
                 upper = min(nmax, len(string) - 1)
                 if upper < 0:
                     continue
-                total = total + sum([
-                    string[n]
-                    * prod(
-                        [z[i]**(self.AffineScalarProduct(wrep.action(weight - n * delta), L.simple_roots()[i]))
-                         for i in range(1, self.rank)]
-                    )
-                    * q**(- self.Tolambdakn(wrep.action(weight - n * delta))[-1])
-                    for n in range(0, upper + 1)
-                ])
+                total = total + sum(
+                    [
+                        string[n]
+                        * prod(
+                            [
+                                z[i]
+                                ** (
+                                    self.AffineScalarProduct(
+                                        wrep.action(weight - n * delta), L.simple_roots()[i]
+                                    )
+                                )
+                                for i in range(1, self.rank)
+                            ]
+                        )
+                        * q ** (-self.Tolambdakn(wrep.action(weight - n * delta))[-1])
+                        for n in range(0, upper + 1)
+                    ]
+                )
 
         return sum([total.coefficient(q, n) * q**n for n in range(0, target_order + 1)])
 
@@ -1029,7 +1327,7 @@ class Alg:
                 if len(seq) < nmax + 1:
                     complete = False
                     break
-                prefixes[w] = tuple(seq[0:nmax + 1])
+                prefixes[w] = tuple(seq[0 : nmax + 1])
 
             if complete and previous_prefix is not None and prefixes == previous_prefix:
                 return data
@@ -1054,8 +1352,15 @@ class Alg:
     def _CharacterOfIntegrableModuleRaw(self, V, order):
         # internal raw summation for a fixed cutoff order
         wMaxDoms = V.dominant_maximal_weights()
-        self.T = list(set(itertools.chain(
-            *[self.GetTranslationsBynShift(wMaxDom, order) for wMaxDom in V.dominant_maximal_weights()]))
+        self.T = list(
+            set(
+                itertools.chain(
+                    *[
+                        self.GetTranslationsBynShift(wMaxDom, order)
+                        for wMaxDom in V.dominant_maximal_weights()
+                    ]
+                )
+            )
         )
         self.W = self.GetWeylGroup(0, "qSeries")
 
@@ -1072,10 +1377,12 @@ class Alg:
                 current = representatives.get(key)
                 if current is None or w.length() < current.length():
                     representatives[key] = w
-            total = total + sum([
-                self.CharContribFromWeightSeries(V, weight, wrep, order)
-                for wrep in representatives.values()
-            ])
+            total = total + sum(
+                [
+                    self.CharContribFromWeightSeries(V, weight, wrep, order)
+                    for wrep in representatives.values()
+                ]
+            )
 
         return total
 
@@ -1088,7 +1395,7 @@ class Alg:
         # data structure depending on the task
         result = None
         for i in tqdm(range(0, len(full_list), chunk_size), leave=True):
-            chunk = full_list[i:i+chunk_size]
+            chunk = full_list[i : i + chunk_size]
             if result is None:
                 result = chunk_processor(chunk)
             else:
