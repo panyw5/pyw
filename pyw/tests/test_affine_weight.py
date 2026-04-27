@@ -307,7 +307,7 @@ class TestConversion:
         ala = AffineLieAlgebra(["A", 2, 1])
 
         Lambda_hat_1 = AffineWeight.affine_fundamental_weight(ala, 1)
-        sage_w = Lambda_hat_1.to_sagemath()
+        sage_w = Lambda_hat_1.to_sagemath(extended=False)
 
         sage_Lambda = ala.fundamental_weights_sage()
         assert sage_w == sage_Lambda[1]
@@ -319,7 +319,7 @@ class TestConversion:
         original = sage_Lambda[1] + sage_Lambda[2]
 
         w = AffineWeight.from_sagemath(ala, original)
-        recovered = w.to_sagemath()
+        recovered = w.to_sagemath(extended=False)
 
         assert recovered == original
 

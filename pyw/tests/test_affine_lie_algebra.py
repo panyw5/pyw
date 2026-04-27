@@ -332,17 +332,6 @@ class TestLevelAndDynkin:
         # [2, 1, 0]: k = 1*2 + 1*1 + 1*0 = 3
         assert ala.level_from_dynkin({0: 2, 1: 1, 2: 0}) == 3
 
-    def test_lambda0_from_level(self):
-        """Test λ₀ = k - (λ, θ) = k - Σ a_i λ_i."""
-        ala = AffineLieAlgebra(["A", 2, 1])
-
-        # k=2, finite labels {1: 1, 2: 0}
-        # λ₀ = 2 - (1*1 + 1*0) = 1
-        assert ala.lambda0_from_level(2, {1: 1, 2: 0}) == 1
-
-        # k=3, finite labels {1: 1, 2: 1}
-        # λ₀ = 3 - (1*1 + 1*1) = 1
-        assert ala.lambda0_from_level(3, {1: 1, 2: 1}) == 1
 
     def test_is_dominant(self):
         """Test dominance check."""

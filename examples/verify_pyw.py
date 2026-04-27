@@ -171,7 +171,7 @@ try:
     paw = PrincipalAdmissibleWeight(level, y)
     print(f"✓ Created PrincipalAdmissibleWeight")
 
-    weights = paw.construct_set(max_fundamental_coeff=1)
+    weights = paw.construct_principal_weights(max_fundamental_coeff=1)
     print(f"✓ Constructed set with {len(weights)} weights (max_coeff=1)")
 
     if weights:

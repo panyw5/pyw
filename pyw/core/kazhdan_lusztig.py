@@ -29,6 +29,8 @@ import hashlib
 import json
 import os
 import shutil
+import time
+import warnings
 from glob import glob
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -93,8 +95,14 @@ class KazhdanLusztigPolynomials:
         cache_dir : Path, optional
             Directory for caching (default: ~/.pyw/kl_cache)
         """
-        self.weyl_group = coxeter_group
         self.cartan_type = coxeter_group.cartan_type()
+
+        try:
+            from sage.all import CoxeterGroup as SageCoxeterGroup
+
+            self.weyl_group = SageCoxeterGroup(self.cartan_type, implementation="coxeter3")
+        except Exception:
+            self.weyl_group = coxeter_group
 
         # Setup caching
         if cache_dir is None:
@@ -108,36 +116,63 @@ class KazhdanLusztigPolynomials:
         self._invpol_cache: Dict[Tuple[Any, Any], Any] = {}
         self._Q_at_one_cache: Dict[Tuple[Any, Any], Any] = {}
         self._legacy_Q_cache: Dict[Tuple[Tuple[int, ...], Tuple[int, ...]], Any] = {}
+        self._profiling_enabled = False
+        self._profile_stats: Dict[str, Any] = {}
 
         # Initialize SageMath KL calculator
         self._sage_kl = None
         self._coxeter3 = None
 
         self._setup_backends()
+        self.reset_profile_stats()
+
+    def reset_profile_stats(self) -> None:
+        self._profile_stats = {
+            "Q_calls": 0,
+            "Q_total_seconds": 0.0,
+            "Q_invpol_seconds": 0.0,
+            "Q_invpol_calls": 0,
+            "Q_cache_hits_at_one": 0,
+            "Q_cache_hits_poly": 0,
+            "Q_tilde_calls": 0,
+            "Q_tilde_total_seconds": 0.0,
+            "Q_tilde_stabilizer_terms": 0,
+        }
+
+    def set_profiling(self, enabled: bool) -> None:
+        self._profiling_enabled = enabled
+
+    def profile_stats(self) -> Dict[str, Any]:
+        return dict(self._profile_stats)
 
     def _setup_backends(self) -> None:
         """Initialize computation backends."""
-        # Try SageMath's native KL
+        from sage.rings.polynomial.polynomial_ring_constructor import PolynomialRing
+
+        R = PolynomialRing(QQ, "q")
+        self._q = R.gen()
+
+        try:
+            from sage.all import CoxeterGroup as SageCoxeterGroup
+
+            ct = self.weyl_group.cartan_type()
+            self._coxeter3_group = SageCoxeterGroup(ct, implementation="coxeter3")
+        except Exception:
+            self._coxeter3_group = None
+
         try:
             from sage.combinat.kazhdan_lusztig import KazhdanLusztigPolynomial
-            from sage.rings.polynomial.polynomial_ring_constructor import PolynomialRing
 
-            # Use polynomial ring instead of symbolic variable to avoid subs() issues
-            R = PolynomialRing(QQ, "q")
-            q = R.gen()
-            self._sage_kl = KazhdanLusztigPolynomial(self.weyl_group, q)
-            self._q = q  # Store for substitution
+            self._sage_kl = KazhdanLusztigPolynomial(self.weyl_group, self._q)
         except ImportError:
             pass
 
-        # Try coxeter3 backend (faster for large groups)
         try:
             from coxeter3_sage import Coxeter3
 
             command = self._discover_coxeter_command()
             self._coxeter3 = Coxeter3(self.weyl_group, self._q, command=command)
         except (ImportError, Exception):
-            # coxeter3 not available or type not supported
             pass
 
     def _discover_coxeter_command(self) -> str:
@@ -196,16 +231,47 @@ class KazhdanLusztigPolynomials:
             p = self._P_cache[cache_key]
             return p.subs({self._q: 1}) if at_one else p
 
-        # Compute using SageMath
+        if self._coxeter3_group is not None:
+            word = tuple(int(i) for i in x.reduced_word())
+            x3 = self._coxeter3_group.from_reduced_word(word)
+            word2 = tuple(int(i) for i in y.reduced_word())
+            y3 = self._coxeter3_group.from_reduced_word(word2)
+            p = self._coxeter3_group.kazhdan_lusztig_polynomial(x3, y3)
+            self._P_cache[cache_key] = p
+            return int(p.subs({self._q: 1})) if at_one else p
+
+        if self._coxeter3 is not None:
+            x_word = [i + 1 for i in x.reduced_word()]
+            y_word = [i + 1 for i in y.reduced_word()]
+            p = self._coxeter3.P(x_word, y_word)
+            self._P_cache[cache_key] = p
+            return int(p.subs({self._q: 1})) if at_one else p
+
         if self._sage_kl is not None:
             p = self._sage_kl.P(x, y)
             self._P_cache[cache_key] = p
             return p.subs({self._q: 1}) if at_one else p
 
-        # Fallback: P_{x,y} = 1 for x = y, need recursive formula otherwise
         raise NotImplementedError(
-            "KL polynomial computation requires SageMath's KazhdanLusztigPolynomial"
+            "KL polynomial computation requires coxeter3 or SageMath's KazhdanLusztigPolynomial"
         )
+
+    def _P_by_words_experiment(self, x_word: tuple, y_word: tuple, at_one: bool = True) -> Any:
+        cache_key = (x_word, y_word)
+        if cache_key in self._P_cache:
+            p = self._P_cache[cache_key]
+            return int(p.subs({self._q: 1})) if at_one else p
+
+        if self._coxeter3_group is not None:
+            x3 = self._coxeter3_group.from_reduced_word(x_word)
+            y3 = self._coxeter3_group.from_reduced_word(y_word)
+            p = self._coxeter3_group.kazhdan_lusztig_polynomial(x3, y3)
+            self._P_cache[cache_key] = p
+            return int(p.subs({self._q: 1})) if at_one else p
+
+        x_el = self.weyl_group.from_reduced_word(x_word)
+        y_el = self.weyl_group.from_reduced_word(y_word)
+        return self.P(x_el, y_el, at_one=at_one)
 
     # =========================================================================
     # Inverse KL Polynomials Q_{x,y}(q)
@@ -243,21 +309,40 @@ class KazhdanLusztigPolynomials:
         """
         x = self._ensure_element(x)
         y = self._ensure_element(y)
+        q_started = time.perf_counter() if self._profiling_enabled else None
 
         cache_key = (self._element_key(x), self._element_key(y))
         if at_one and cache_key in self._Q_at_one_cache:
+            if self._profiling_enabled:
+                self._profile_stats["Q_calls"] += 1
+                self._profile_stats["Q_cache_hits_at_one"] += 1
+                self._profile_stats["Q_total_seconds"] += time.perf_counter() - q_started
             return self._Q_at_one_cache[cache_key]
         if not at_one and cache_key in self._Q_cache:
+            if self._profiling_enabled:
+                self._profile_stats["Q_calls"] += 1
+                self._profile_stats["Q_cache_hits_poly"] += 1
+                self._profile_stats["Q_total_seconds"] += time.perf_counter() - q_started
             return self._Q_cache[cache_key]
 
         if self._coxeter3 is not None and hasattr(self._coxeter3, "invpol"):
             try:
+                invpol_started = time.perf_counter() if self._profiling_enabled else None
                 result = self._coxeter3.invpol(x, y)
+                if self._profiling_enabled:
+                    self._profile_stats["Q_invpol_calls"] += 1
+                    self._profile_stats["Q_invpol_seconds"] += time.perf_counter() - invpol_started
                 self._Q_cache[cache_key] = result
                 if at_one:
                     value_at_one = result.subs({self._q: 1}) if hasattr(result, "subs") else result
                     self._Q_at_one_cache[cache_key] = value_at_one
+                    if self._profiling_enabled:
+                        self._profile_stats["Q_calls"] += 1
+                        self._profile_stats["Q_total_seconds"] += time.perf_counter() - q_started
                     return value_at_one
+                if self._profiling_enabled:
+                    self._profile_stats["Q_calls"] += 1
+                    self._profile_stats["Q_total_seconds"] += time.perf_counter() - q_started
                 return result
             except Exception:
                 pass
@@ -265,13 +350,19 @@ class KazhdanLusztigPolynomials:
         if not at_one:
             result = self._compute_inverse_kl_by_matrix_inversion(x, y, at_one=False)
             self._Q_cache[cache_key] = result
+            if self._profiling_enabled:
+                self._profile_stats["Q_calls"] += 1
+                self._profile_stats["Q_total_seconds"] += time.perf_counter() - q_started
             return result
 
         result = self._compute_inverse_kl_by_matrix_inversion(x, y, at_one=True)
         self._Q_at_one_cache[cache_key] = result
+        if self._profiling_enabled:
+            self._profile_stats["Q_calls"] += 1
+            self._profile_stats["Q_total_seconds"] += time.perf_counter() - q_started
         return result
 
-    def Q_tilde(
+    def Q_tilde_experiment(
         self,
         coset_x: "CosetRepresentative",
         coset_y: "CosetRepresentative",
@@ -281,12 +372,12 @@ class KazhdanLusztigPolynomials:
         Compute the quotient/parabolic inverse KL polynomial Q̃_{[x],[y]}(q).
 
         This is the coset-level object attached to the quotient W / W_I. It is
-        implemented by :meth:`parabolic_Q_tilde`, which currently supports
+        implemented by :meth:`parabolic_Q_tilde_experiment`, which currently supports
         right cosets in finite Weyl groups.
         """
-        return self.parabolic_Q_tilde(coset_x, coset_y, at_one=at_one)
+        return self.parabolic_Q_tilde_experiment(coset_x, coset_y, at_one=at_one)
 
-    def invpol(self, x: Any, y: Any) -> Any:
+    def invpol_experiment(self, x: Any, y: Any) -> Any:
         """
         Compute inverse KL polynomial using coxeter3's invpol.
 
@@ -363,7 +454,7 @@ class KazhdanLusztigPolynomials:
     # Parabolic (Coset) KL Polynomials
     # =========================================================================
 
-    def parabolic_Q_tilde(
+    def parabolic_Q_tilde_experiment(
         self,
         coset_x: "CosetRepresentative",
         coset_y: "CosetRepresentative",
@@ -407,9 +498,11 @@ class KazhdanLusztigPolynomials:
         if coset_x._left != coset_y._left:
             raise ValueError("Coset inputs must use the same left/right convention")
         if coset_x._left:
-            raise NotImplementedError("parabolic_Q_tilde currently supports right cosets only")
+            raise NotImplementedError(
+                "parabolic_Q_tilde_experiment currently supports right cosets only"
+            )
         if not self.weyl_group.is_finite():
-            raise ValueError("parabolic_Q_tilde currently supports finite groups only")
+            raise ValueError("parabolic_Q_tilde_experiment currently supports finite groups only")
 
         # Get minimal representatives
         x_min = coset_x.representative
@@ -420,11 +513,11 @@ class KazhdanLusztigPolynomials:
             return 0
 
         # Get maximal representative of [x]
-        x_max = self._maximal_representative_in_coset(x_min, parabolic)
+        x_max = self._maximal_representative_in_coset_experiment(x_min, parabolic)
 
         # Sum over elements in coset [y]
         result = 0
-        for z in self._enumerate_coset_elements(y_min, parabolic):
+        for z in self._enumerate_coset_elements_experiment(y_min, parabolic):
             if bruhat.le(x_max, z):
                 q_val = self.Q(x_max, z, at_one=at_one)
                 sign = (-1) ** (bruhat.length(x_max) + bruhat.length(z))
@@ -432,27 +525,95 @@ class KazhdanLusztigPolynomials:
 
         return result
 
-    def affine_bounded_interval(
+    @staticmethod
+    def _is_subseq(a: tuple, b: tuple) -> bool:
+        """Return True if tuple *a* is a subsequence of tuple *b* (subword criterion)."""
+        it = iter(b)
+        return all(x in it for x in a)
+
+    @staticmethod
+    def _build_word_cache(elements: Iterable[Any]) -> Dict[int, tuple]:
+        """Pre-compute reduced words for all elements, keyed by id()."""
+        cache: Dict[int, tuple] = {}
+        for e in elements:
+            eid = id(e)
+            if eid not in cache:
+                cache[eid] = tuple(int(i) for i in e.reduced_word())
+        return cache
+
+    def _bruhat_le_by_words(
+        self,
+        x: Any,
+        y: Any,
+        word_cache: Optional[Dict[int, tuple]] = None,
+    ) -> bool:
+        """Bruhat order x ≤ y via subword criterion on reduced words.
+
+        Significantly faster than SageMath's matrix-based ``bruhat_le`` for
+        affine Weyl group elements because it avoids GAP matrix hashing.
+        Falls back to SageMath ``bruhat_le`` when *word_cache* is not supplied.
+        """
+        if word_cache is None:
+            return bool(x.bruhat_le(y))
+        wx_cached = word_cache.get(id(x))
+        wy_cached = word_cache.get(id(y))
+        wx = wx_cached if wx_cached is not None else tuple(int(i) for i in x.reduced_word())
+        wy = wy_cached if wy_cached is not None else tuple(int(i) for i in y.reduced_word())
+        return self._is_subseq(wx, wy)
+
+    def affine_bounded_interval_experiment(
         self,
         x: Any,
         y: Any,
         *,
         candidates: Iterable[Any],
+        word_cache: Optional[Dict[int, tuple]] = None,
     ) -> List[Any]:
-        """Bruhat interval restricted to an explicit bounded affine candidate set."""
-        from .bruhat import BruhatOrder
+        """Bruhat interval restricted to an explicit bounded affine candidate set.
 
-        bruhat = BruhatOrder(self.weyl_group)
-        coerced = [self._ensure_element(w) for w in candidates]
-        return bruhat.interval_from_candidates(self._ensure_element(x), self._ensure_element(y), coerced)
+        Parameters
+        ----------
+        word_cache:
+            Optional pre-computed ``{id(elem): reduced_word_tuple}`` mapping.
+            When supplied, Bruhat comparisons use the fast subword criterion
+            instead of SageMath's matrix-based ``bruhat_le``.
+        """
+        x = self._ensure_element(x)
+        y = self._ensure_element(y)
 
-    def affine_bounded_Q(
+        candidates_list = [self._ensure_element(w) for w in candidates]
+        if word_cache is None:
+            word_cache = self._build_word_cache([x, y] + candidates_list)
+
+        wx_cached = word_cache.get(id(x))
+        wy_cached = word_cache.get(id(y))
+        lx = len(wx_cached) if wx_cached is not None else int(x.length())
+        ly = len(wy_cached) if wy_cached is not None else int(y.length())
+
+        filtered = [
+            w
+            for w in candidates_list
+            if lx <= len(word_cache.get(id(w), ())) <= ly
+            and self._bruhat_le_by_words(x, w, word_cache)
+            and self._bruhat_le_by_words(w, y, word_cache)
+        ]
+
+        key_x = self._element_key(x)
+        key_y = self._element_key(y)
+        filtered_keys = {self._element_key(w) for w in filtered}
+        if key_x not in filtered_keys or key_y not in filtered_keys:
+            raise ValueError("bounded candidate set must contain both interval endpoints")
+
+        return filtered
+
+    def affine_bounded_Q_experiment(
         self,
         x: Any,
         y: Any,
         *,
         candidates: Iterable[Any],
         at_one: bool = True,
+        word_cache: Optional[Dict[int, tuple]] = None,
     ) -> Any:
         """Compute ordinary inverse KL polynomial on a bounded affine interval.
 
@@ -460,19 +621,38 @@ class KazhdanLusztigPolynomials:
         locally finite. This helper lets callers provide an explicit bounded
         candidate set coming from translation bounds, then performs the same
         matrix-inversion construction used by the finite fallback.
-        """
-        from .bruhat import BruhatOrder
 
-        bruhat = BruhatOrder(self.weyl_group)
+        Parameters
+        ----------
+        word_cache:
+            Optional pre-computed reduced-word cache (see
+            :meth:`affine_bounded_interval_experiment`).  Pass the same cache across all
+            calls within one ``numerator_terms`` computation to avoid
+            recomputing reduced words for every interval.
+        """
         x = self._ensure_element(x)
         y = self._ensure_element(y)
 
-        if not bruhat.le(x, y):
+        if word_cache is None:
+            candidates_list = [self._ensure_element(w) for w in candidates]
+            word_cache = self._build_word_cache([x, y] + candidates_list)
+
+        if not self._bruhat_le_by_words(x, y, word_cache):
             return 0
 
-        interval = self.affine_bounded_interval(x, y, candidates=candidates)
-        if x not in interval or y not in interval:
-            raise ValueError("bounded candidate set must contain both interval endpoints")
+        if self._coxeter3 is not None and hasattr(self._coxeter3, "invpol"):
+            try:
+                result = self._coxeter3.invpol(x, y)
+                if at_one:
+                    return result.subs({self._q: 1}) if hasattr(result, "subs") else result
+                return result
+            except Exception:
+                pass
+
+        candidates_list = [self._ensure_element(w) for w in candidates]
+        interval = self.affine_bounded_interval_experiment(
+            x, y, candidates=candidates_list, word_cache=word_cache
+        )
 
         n = len(interval)
         if n == 1:
@@ -482,29 +662,22 @@ class KazhdanLusztigPolynomials:
         p_matrix = matrix(ring, n, n)
         for i, w_i in enumerate(interval):
             for j, w_j in enumerate(interval):
-                if bruhat.le(w_i, w_j):
-                    p_matrix[i, j] = self.P(w_i, w_j, at_one=at_one)
+                if self._bruhat_le_by_words(w_i, w_j, word_cache):
+                    xi = word_cache.get(id(w_i))
+                    xj = word_cache.get(id(w_j))
+                    if xi is not None and xj is not None:
+                        p_matrix[i, j] = self._P_by_words_experiment(xi, xj, at_one=at_one)
+                    else:
+                        p_matrix[i, j] = self.P(w_i, w_j, at_one=at_one)
 
         q_matrix = p_matrix.inverse()
-        return q_matrix[interval.index(x), interval.index(y)]
+        key_x = self._element_key(x)
+        key_y = self._element_key(y)
+        idx_x = next(k for k, w in enumerate(interval) if self._element_key(w) == key_x)
+        idx_y = next(k for k, w in enumerate(interval) if self._element_key(w) == key_y)
+        return q_matrix[idx_x, idx_y]
 
-    def affine_bounded_Q_tilde(
-        self,
-        x: Any,
-        y: Any,
-        *,
-        candidates: Iterable[Any],
-        at_one: bool = True,
-    ) -> Any:
-        """Legacy alias for :meth:`affine_bounded_Q`.
-
-        Historically this helper was misnamed as if it computed a quotient
-        object. It actually computes the ordinary inverse KL polynomial Q on a
-        bounded affine Bruhat interval.
-        """
-        return self.affine_bounded_Q(x, y, candidates=candidates, at_one=at_one)
-
-    def affine_stabilizer(
+    def affine_stabilizer_experiment(
         self,
         Lambda: Any,
         *,
@@ -535,7 +708,9 @@ class KazhdanLusztigPolynomials:
         for w in candidates:
             if semidirect is not None:
                 if hasattr(w, "reduced_word"):
-                    affine_word = w.word() if hasattr(w, "word") else tuple(int(i) for i in w.reduced_word())
+                    affine_word = (
+                        w.word() if hasattr(w, "word") else tuple(int(i) for i in w.reduced_word())
+                    )
                     element = semidirect.from_word(affine_word)
                     stabilized = element.action(target_affine)
                 else:
@@ -544,10 +719,18 @@ class KazhdanLusztigPolynomials:
 
                 if stabilized - rho_hat_affine == Lambda_affine:
                     if hasattr(w, "reduced_word"):
-                        affine_word = w.word() if hasattr(w, "word") else tuple(int(i) for i in w.reduced_word())
+                        affine_word = (
+                            w.word()
+                            if hasattr(w, "word")
+                            else tuple(int(i) for i in w.reduced_word())
+                        )
                         result.append(self.weyl_group.from_reduced_word(affine_word))
                     else:
-                        affine_word = element.word() if hasattr(element, "word") else tuple(int(i) for i in element.reduced_word())
+                        affine_word = (
+                            element.word()
+                            if hasattr(element, "word")
+                            else tuple(int(i) for i in element.reduced_word())
+                        )
                         result.append(self.weyl_group.from_reduced_word(affine_word))
                 continue
 
@@ -561,7 +744,7 @@ class KazhdanLusztigPolynomials:
 
         return sorted(result, key=lambda w: (int(w.length()), tuple(w.reduced_word())))
 
-    def affine_bounded_parabolic_Q_tilde(
+    def affine_bounded_parabolic_Q_tilde_experiment(
         self,
         x_min: Any,
         y_min: Any,
@@ -569,27 +752,122 @@ class KazhdanLusztigPolynomials:
         candidates: Iterable[Any],
         stabilizer_candidates: Iterable[Any],
         at_one: bool = True,
+        word_cache: Optional[Dict[int, tuple]] = None,
     ) -> Any:
-        """Compute bounded affine coset-level Q̃ using an explicit stabilizer set."""
-        from .bruhat import BruhatOrder
+        """Compute affine coset-level Q̃ using the direct legacy summation path.
 
-        bruhat = BruhatOrder(self.weyl_group)
-        x_min = self._ensure_element(x_min)
-        y_min = self._ensure_element(y_min)
-        bounded_candidates = [self._ensure_element(w) for w in candidates]
-        stabilizer = [self._ensure_element(w) for w in stabilizer_candidates]
+        Notes
+        -----
+        Deprecated in favor of :meth:`Q_tilde` for default affine
+        KL character assembly. Keep this wrapper only for compatibility with
+        older call sites that still pass ``candidates``.
 
-        if not bruhat.le(x_min, y_min):
+        ``candidates`` is accepted for API compatibility with older bounded
+        affine workflows. It is intentionally not used to filter the coset
+        summation domain.
+        During benchmarking on the current ``KazhdanLusztigCharacter`` path,
+        the previous bounded-candidates implementation was about 50x slower
+        than the direct legacy summation because it repeatedly rebuilt bounded
+        intervals and inverted their P-matrices.
+
+        More importantly, filtering ``y_min * stabilizer`` through a bounded
+        candidate set changes the mathematical object being computed: it turns
+        a full coset sum into a candidate-truncated sum.  The direct path below
+        matches the original ``_legacy_qtilde_at_one_direct`` behavior used by
+        character assembly and should therefore be treated as the standard
+        affine implementation unless a caller explicitly wants a truncated
+        auxiliary computation. The only remaining use of ``candidates`` here is
+        as a fallback support set for ordinary ``Q`` computations when the
+        direct inverse-KL backend is unavailable.
+        """
+        warnings.warn(
+            "affine_bounded_parabolic_Q_tilde_experiment() is deprecated for default KL character assembly; "
+            "use Q_tilde() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        x_min = self._ensure_element(x_min, word_cache=word_cache)
+        y_min = self._ensure_element(y_min, word_cache=word_cache)
+        bounded_candidates = [self._ensure_element(w, word_cache=word_cache) for w in candidates]
+        stabilizer = [self._ensure_element(w, word_cache=word_cache) for w in stabilizer_candidates]
+
+        if word_cache is None:
+            word_cache = self._build_word_cache([x_min, y_min] + bounded_candidates + stabilizer)
+
+        if not self._bruhat_le_by_words(x_min, y_min, word_cache):
             return 0
 
         x_max = self._bounded_maximal_representative(x_min, stabilizer=stabilizer)
-        result = 0
-        for z in self._bounded_right_coset_elements(y_min, stabilizer=stabilizer, candidates=bounded_candidates):
-            if bruhat.le(x_max, z):
-                q_val = self.affine_bounded_Q(x_max, z, candidates=bounded_candidates, at_one=at_one)
-                sign = (-1) ** (bruhat.length(x_max) + bruhat.length(z))
-                result += sign * q_val
+        if id(x_max) not in word_cache:
+            word_cache[id(x_max)] = tuple(int(i) for i in x_max.reduced_word())
 
+        result = 0
+        for stabilizer_element in stabilizer:
+            coset_element = y_min * stabilizer_element
+            if id(coset_element) not in word_cache:
+                word_cache[id(coset_element)] = tuple(int(i) for i in coset_element.reduced_word())
+
+            if self._coxeter3 is not None and hasattr(self._coxeter3, "invpol"):
+                q_value = self.Q(x_max, coset_element, at_one=at_one)
+            else:
+                ordinary_q_candidates_by_key = {
+                    self._element_key(candidate): candidate
+                    for candidate in bounded_candidates + [x_max, coset_element]
+                }
+                q_value = self.affine_bounded_Q_experiment(
+                    x_max,
+                    coset_element,
+                    candidates=ordinary_q_candidates_by_key.values(),
+                    at_one=at_one,
+                    word_cache=word_cache,
+                )
+
+            sign = (-1) ** (len(word_cache[id(x_max)]) - len(word_cache[id(coset_element)]))
+            result += sign * q_value
+
+        if hasattr(result, "full_simplify"):
+            result = result.full_simplify()
+        return result
+
+    def Q_tilde(
+        self,
+        x_min: Any,
+        y_min: Any,
+        *,
+        stabilizer_candidates: Iterable[Any],
+        at_one: bool = True,
+        word_cache: Optional[Dict[int, tuple]] = None,
+    ) -> Any:
+        q_tilde_started = time.perf_counter() if self._profiling_enabled else None
+        x_min = self._ensure_element(x_min, word_cache=word_cache)
+        y_min = self._ensure_element(y_min, word_cache=word_cache)
+        stabilizer = [self._ensure_element(w, word_cache=word_cache) for w in stabilizer_candidates]
+
+        if word_cache is None:
+            word_cache = self._build_word_cache([x_min, y_min] + stabilizer)
+
+        if not self._bruhat_le_by_words(x_min, y_min, word_cache):
+            return 0
+
+        x_max = self._bounded_maximal_representative(x_min, stabilizer=stabilizer)
+        if id(x_max) not in word_cache:
+            word_cache[id(x_max)] = tuple(int(i) for i in x_max.reduced_word())
+
+        result = 0
+        for stabilizer_element in stabilizer:
+            coset_element = y_min * stabilizer_element
+            if id(coset_element) not in word_cache:
+                word_cache[id(coset_element)] = tuple(int(i) for i in coset_element.reduced_word())
+            q_value = self.Q(x_max, coset_element, at_one=at_one)
+            sign = (-1) ** (len(word_cache[id(x_max)]) - len(word_cache[id(coset_element)]))
+            result += sign * q_value
+
+        if hasattr(result, "full_simplify"):
+            result = result.full_simplify()
+        if self._profiling_enabled:
+            self._profile_stats["Q_tilde_calls"] += 1
+            self._profile_stats["Q_tilde_stabilizer_terms"] += len(stabilizer)
+            self._profile_stats["Q_tilde_total_seconds"] += time.perf_counter() - q_tilde_started
         return result
 
     def _bounded_maximal_representative(self, w_min: Any, *, stabilizer: Iterable[Any]) -> Any:
@@ -604,17 +882,21 @@ class KazhdanLusztigPolynomials:
                 current_length = candidate_length
         return current
 
-    def _bounded_right_coset_elements(
+    def _bounded_right_coset_elements_experiment(
         self,
         w_min: Any,
         *,
         stabilizer: Iterable[Any],
         candidates: Iterable[Any],
+        candidate_set: Optional[Dict[Tuple[int, ...], Any]] = None,
+        word_cache: Optional[Dict[int, tuple]] = None,
     ) -> List[Any]:
         """Enumerate right-coset elements present in a bounded candidate set."""
-        candidate_set = {
-            self._element_key(self._ensure_element(w)): self._ensure_element(w) for w in candidates
-        }
+        if candidate_set is None:
+            candidate_set = {
+                self._element_key(self._ensure_element(w)): self._ensure_element(w)
+                for w in candidates
+            }
         result: Dict[Tuple[int, ...], Any] = {}
         base = self._ensure_element(w_min)
         for s in stabilizer:
@@ -622,11 +904,16 @@ class KazhdanLusztigPolynomials:
             key = self._element_key(candidate)
             if key in candidate_set:
                 result[key] = candidate_set[key]
-        if self._element_key(base) not in result and self._element_key(base) in candidate_set:
-            result[self._element_key(base)] = candidate_set[self._element_key(base)]
+        base_key = self._element_key(base)
+        if base_key not in result and base_key in candidate_set:
+            result[base_key] = candidate_set[base_key]
+        if word_cache is not None:
+            return sorted(result.values(), key=lambda w: len(word_cache.get(id(w), ())))
         return sorted(result.values(), key=lambda w: (int(w.length()), tuple(w.reduced_word())))
 
-    def _maximal_representative_in_coset(self, w_min: Any, parabolic: "ParabolicSubgroup") -> Any:
+    def _maximal_representative_in_coset_experiment(
+        self, w_min: Any, parabolic: "ParabolicSubgroup"
+    ) -> Any:
         """Find the maximal length representative of a coset."""
         from .bruhat import BruhatOrder
 
@@ -647,7 +934,9 @@ class KazhdanLusztigPolynomials:
                     break
         return current
 
-    def _enumerate_coset_elements(self, w_min: Any, parabolic: "ParabolicSubgroup") -> List[Any]:
+    def _enumerate_coset_elements_experiment(
+        self, w_min: Any, parabolic: "ParabolicSubgroup"
+    ) -> List[Any]:
         """Get all elements in the coset of w_min."""
         from .bruhat import BruhatOrder
 
@@ -676,7 +965,7 @@ class KazhdanLusztigPolynomials:
     # Caching and Persistence
     # =========================================================================
 
-    def save_cache(self, filename: Optional[str] = None) -> Path:
+    def save_cache_experiment(self, filename: Optional[str] = None) -> Path:
         """
         Save computed polynomials to disk.
 
@@ -698,11 +987,11 @@ class KazhdanLusztigPolynomials:
 
         # Convert cache to serializable format
         cache_data = {
-            "cache_version": self.CACHE_VERSION,
+            "cache_version": self.CACHE_VERSION_experiment,
             "cartan_type": str(self.cartan_type),
             "value_kind": "Q_at_one",
             "Q_at_one_cache": {
-                self._cache_key_to_string(k): self._json_scalar(v)
+                self._cache_key_to_string_experiment(k): self._json_scalar_experiment(v)
                 for k, v in self._Q_at_one_cache.items()
             },
         }
@@ -712,7 +1001,7 @@ class KazhdanLusztigPolynomials:
 
         return filepath
 
-    def load_cache(self, filename: Optional[str] = None) -> bool:
+    def load_cache_experiment(self, filename: Optional[str] = None) -> bool:
         """
         Load cached polynomials from disk.
 
@@ -739,7 +1028,7 @@ class KazhdanLusztigPolynomials:
             with open(filepath) as f:
                 cache_data = json.load(f)
 
-            if cache_data.get("cache_version") != self.CACHE_VERSION:
+            if cache_data.get("cache_version") != self.CACHE_VERSION_experiment:
                 return False
 
             if cache_data.get("cartan_type") != str(self.cartan_type):
@@ -749,7 +1038,7 @@ class KazhdanLusztigPolynomials:
                 return False
 
             for key_str, value in cache_data.get("Q_at_one_cache", {}).items():
-                self._Q_at_one_cache[self._parse_cache_key(key_str)] = value
+                self._Q_at_one_cache[self._parse_cache_key_experiment(key_str)] = value
 
             return True
         except Exception:
@@ -759,12 +1048,15 @@ class KazhdanLusztigPolynomials:
     # Internal Methods
     # =========================================================================
 
-    def _ensure_element(self, w: Any) -> Any:
-        """Ensure w is an element of self.weyl_group."""
+    def _ensure_element(self, w: Any, word_cache: Optional[Dict[int, tuple]] = None) -> Any:
         if hasattr(w, "parent") and w.parent() == self.weyl_group:
             return w
         if isinstance(w, (list, tuple)):
-            return self.weyl_group.from_reduced_word(w)
+            return self.weyl_group.from_reduced_word(list(w))
+        if word_cache is not None and id(w) in word_cache:
+            return self.weyl_group.from_reduced_word(list(word_cache[id(w)]))
+        if hasattr(w, "reduced_word"):
+            return self.weyl_group.from_reduced_word(list(w.reduced_word()))
         return w
 
     def _element_key(self, w: Any) -> Tuple[int, ...]:
@@ -773,14 +1065,16 @@ class KazhdanLusztigPolynomials:
             return tuple(w.reduced_word())
         return (0,)  # Identity
 
-    def _cache_key_to_string(self, cache_key: Tuple[Tuple[int, ...], Tuple[int, ...]]) -> str:
+    def _cache_key_to_string_experiment(
+        self, cache_key: Tuple[Tuple[int, ...], Tuple[int, ...]]
+    ) -> str:
         return json.dumps([list(cache_key[0]), list(cache_key[1])])
 
-    def _parse_cache_key(self, key_str: str) -> Tuple[Tuple[int, ...], Tuple[int, ...]]:
+    def _parse_cache_key_experiment(self, key_str: str) -> Tuple[Tuple[int, ...], Tuple[int, ...]]:
         left, right = json.loads(key_str)
         return (tuple(left), tuple(right))
 
-    def _json_scalar(self, value: Any) -> Any:
+    def _json_scalar_experiment(self, value: Any) -> Any:
         if isinstance(value, (int, float, str, bool)) or value is None:
             return value
         if hasattr(value, "is_integer") and value.is_integer():
@@ -793,4 +1087,4 @@ class KazhdanLusztigPolynomials:
             except (TypeError, ValueError):
                 return str(value)
 
-    CACHE_VERSION = 1
+    CACHE_VERSION_experiment = 1

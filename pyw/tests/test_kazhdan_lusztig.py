@@ -231,7 +231,7 @@ class TestKazhdanLusztigPolynomials:
 
         assert kl.Q(W.one(), W.long_element(), at_one=False) == -1
 
-    def test_affine_bounded_interval_filters_candidates(self):
+    def test_affine_bounded_interval_experiment_filters_candidates(self):
         from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
 
         W = WeylGroup(["A", 2, 1])
@@ -241,11 +241,11 @@ class TestKazhdanLusztigPolynomials:
         s0 = W.simple_reflection(0)
         candidates = [e, s0, s0 * W.simple_reflection(1)]
 
-        interval = kl.affine_bounded_interval(e, s0, candidates=candidates)
+        interval = kl.affine_bounded_interval_experiment(e, s0, candidates=candidates)
 
         assert interval == [e, s0]
 
-    def test_affine_bounded_Q_matches_matrix_inversion_on_candidates(self):
+    def test_affine_bounded_Q_experiment_matches_matrix_inversion_on_candidates(self):
         from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
 
         W = WeylGroup(["A", 2, 1])
@@ -256,22 +256,9 @@ class TestKazhdanLusztigPolynomials:
         s0 = W.simple_reflection(0)
         candidates = [e, s0]
 
-        assert kl.affine_bounded_Q(e, s0, candidates=candidates, at_one=True) == -1
+        assert kl.affine_bounded_Q_experiment(e, s0, candidates=candidates, at_one=True) == -1
 
-    def test_affine_bounded_Q_tilde_is_legacy_alias(self):
-        from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
-
-        W = WeylGroup(["A", 2, 1])
-        kl = KazhdanLusztigPolynomials(W)
-        kl._coxeter3 = None
-
-        e = W.one()
-        s0 = W.simple_reflection(0)
-        candidates = [e, s0]
-
-        assert kl.affine_bounded_Q_tilde(e, s0, candidates=candidates, at_one=True) == kl.affine_bounded_Q(e, s0, candidates=candidates, at_one=True)
-
-    def test_affine_stabilizer_contains_identity_for_bounded_search(self):
+    def test_affine_stabilizer_experiment_contains_identity_for_bounded_search(self):
         from pyw.core.affine_lie_algebra import AffineLieAlgebra
         from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
 
@@ -284,7 +271,7 @@ class TestKazhdanLusztigPolynomials:
         rho_hat = sum(Lambda_sage.values())
         candidates = [W.one(), W.simple_reflection(0)]
 
-        stabilizer = kl.affine_stabilizer(
+        stabilizer = kl.affine_stabilizer_experiment(
             Lambda,
             rho_hat=rho_hat,
             candidates=candidates,
@@ -293,7 +280,7 @@ class TestKazhdanLusztigPolynomials:
 
         assert W.one() in stabilizer
 
-    def test_affine_bounded_parabolic_Q_tilde_diagonal_is_one(self):
+    def test_affine_bounded_parabolic_Q_tilde_experiment_diagonal_is_one(self):
         from pyw.core.affine_lie_algebra import AffineLieAlgebra
         from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
 
@@ -310,15 +297,18 @@ class TestKazhdanLusztigPolynomials:
         ]
         stabilizer = [W.one()]
 
-        assert kl.affine_bounded_parabolic_Q_tilde(
-            W.one(),
-            W.one(),
-            candidates=candidates,
-            stabilizer_candidates=stabilizer,
-            at_one=True,
-        ) == 1
+        assert (
+            kl.affine_bounded_parabolic_Q_tilde_experiment(
+                W.one(),
+                W.one(),
+                candidates=candidates,
+                stabilizer_candidates=stabilizer,
+                at_one=True,
+            )
+            == 1
+        )
 
-    def test_affine_bounded_parabolic_Q_tilde_noncomparable_is_zero(self):
+    def test_affine_bounded_parabolic_Q_tilde_experiment_noncomparable_is_zero(self):
         from pyw.core.affine_lie_algebra import AffineLieAlgebra
         from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
 
@@ -336,15 +326,46 @@ class TestKazhdanLusztigPolynomials:
         stabilizer = [W.one()]
         s0 = W.simple_reflection(0)
 
-        assert kl.affine_bounded_parabolic_Q_tilde(
-            s0,
-            W.one(),
-            candidates=candidates,
+        assert (
+            kl.affine_bounded_parabolic_Q_tilde_experiment(
+                s0,
+                W.one(),
+                candidates=candidates,
+                stabilizer_candidates=stabilizer,
+                at_one=True,
+            )
+            == 0
+        )
+
+    def test_affine_bounded_parabolic_Q_tilde_experiment_ignores_candidate_filtering(self):
+        from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
+
+        W = WeylGroup(["A", 2, 1])
+        kl = KazhdanLusztigPolynomials(W)
+        kl._coxeter3 = None
+
+        x_min = W.one()
+        y_min = W.simple_reflection(0)
+        stabilizer = [W.one()]
+
+        coefficient_with_minimal_candidates = kl.affine_bounded_parabolic_Q_tilde_experiment(
+            x_min,
+            y_min,
+            candidates=[x_min],
             stabilizer_candidates=stabilizer,
             at_one=True,
-        ) == 0
+        )
+        coefficient_with_full_candidates = kl.affine_bounded_parabolic_Q_tilde_experiment(
+            x_min,
+            y_min,
+            candidates=[x_min, y_min],
+            stabilizer_candidates=stabilizer,
+            at_one=True,
+        )
 
-    def test_parabolic_Q_tilde_rejects_left_cosets(self):
+        assert coefficient_with_minimal_candidates == coefficient_with_full_candidates == 1
+
+    def test_parabolic_Q_tilde_experiment_rejects_left_cosets(self):
         from pyw.core.bruhat import BruhatOrder, CosetRepresentative
         from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
 
@@ -357,9 +378,9 @@ class TestKazhdanLusztigPolynomials:
         y = CosetRepresentative(W.simple_reflection(2), W_I, left=True)
 
         with pytest.raises(NotImplementedError, match="right cosets only"):
-            kl.parabolic_Q_tilde(x, y, at_one=True)
+            kl.parabolic_Q_tilde_experiment(x, y, at_one=True)
 
-    def test_Q_tilde_dispatches_to_coset_level_api(self):
+    def test_Q_tilde_experiment_dispatches_to_coset_level_api(self):
         from pyw.core.bruhat import BruhatOrder, CosetRepresentative
         from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
 
@@ -372,9 +393,9 @@ class TestKazhdanLusztigPolynomials:
         y = CosetRepresentative(W.simple_reflection(2), W_I, left=True)
 
         with pytest.raises(NotImplementedError, match="right cosets only"):
-            kl.Q_tilde(x, y, at_one=True)
+            kl.Q_tilde_experiment(x, y, at_one=True)
 
-    def test_parabolic_Q_tilde_requires_same_parabolic(self):
+    def test_parabolic_Q_tilde_experiment_requires_same_parabolic(self):
         from pyw.core.bruhat import BruhatOrder, CosetRepresentative
         from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
 
@@ -388,9 +409,9 @@ class TestKazhdanLusztigPolynomials:
         y = CosetRepresentative(W.simple_reflection(2), W_2, left=False)
 
         with pytest.raises(ValueError, match="same parabolic subgroup"):
-            kl.parabolic_Q_tilde(x, y, at_one=True)
+            kl.parabolic_Q_tilde_experiment(x, y, at_one=True)
 
-    def test_parabolic_Q_tilde_rejects_infinite_groups(self):
+    def test_parabolic_Q_tilde_experiment_rejects_infinite_groups(self):
         from pyw.core.bruhat import BruhatOrder, CosetRepresentative
         from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
 
@@ -403,7 +424,7 @@ class TestKazhdanLusztigPolynomials:
         y = CosetRepresentative(W.simple_reflection(0), W_I, left=False)
 
         with pytest.raises(ValueError, match="finite groups only"):
-            kl.parabolic_Q_tilde(x, y, at_one=True)
+            kl.parabolic_Q_tilde_experiment(x, y, at_one=True)
 
     def test_cache_round_trip_for_Q_at_one(self, tmp_path):
         from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
@@ -412,14 +433,14 @@ class TestKazhdanLusztigPolynomials:
         kl = KazhdanLusztigPolynomials(W, cache_dir=tmp_path)
         value = kl.Q(W.one(), W.long_element(), at_one=True)
 
-        cache_path = kl.save_cache()
+        cache_path = kl.save_cache_experiment()
         payload = json.loads(cache_path.read_text())
 
-        assert payload["cache_version"] == kl.CACHE_VERSION
+        assert payload["cache_version"] == kl.CACHE_VERSION_experiment
         assert payload["value_kind"] == "Q_at_one"
 
         restored = KazhdanLusztigPolynomials(W, cache_dir=tmp_path)
-        assert restored.load_cache(cache_path.name)
+        assert restored.load_cache_experiment(cache_path.name)
         assert restored.Q(W.one(), W.long_element(), at_one=True) == value
 
     def test_cache_rejects_mismatched_cartan_type(self, tmp_path):
@@ -430,10 +451,10 @@ class TestKazhdanLusztigPolynomials:
 
         writer = KazhdanLusztigPolynomials(W_a2, cache_dir=tmp_path)
         writer.Q(W_a2.one(), W_a2.long_element(), at_one=True)
-        cache_path = writer.save_cache("shared.json")
+        cache_path = writer.save_cache_experiment("shared.json")
 
         reader = KazhdanLusztigPolynomials(W_b2, cache_dir=tmp_path)
-        assert not reader.load_cache(cache_path.name)
+        assert not reader.load_cache_experiment(cache_path.name)
 
     def test_cache_rejects_invalid_payload(self, tmp_path):
         from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
@@ -443,7 +464,7 @@ class TestKazhdanLusztigPolynomials:
         bad_path = tmp_path / "kl_cache_bad.json"
         bad_path.write_text("not valid json")
 
-        assert not kl.load_cache(bad_path.name)
+        assert not kl.load_cache_experiment(bad_path.name)
 
     def test_cache_rejects_wrong_value_kind(self, tmp_path):
         from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
@@ -454,7 +475,7 @@ class TestKazhdanLusztigPolynomials:
         bad_path.write_text(
             json.dumps(
                 {
-                    "cache_version": kl.CACHE_VERSION,
+                    "cache_version": kl.CACHE_VERSION_experiment,
                     "cartan_type": str(W.cartan_type()),
                     "value_kind": "Q_tilde_polynomial",
                     "Q_at_one_cache": {},
@@ -462,7 +483,7 @@ class TestKazhdanLusztigPolynomials:
             )
         )
 
-        assert not kl.load_cache(bad_path.name)
+        assert not kl.load_cache_experiment(bad_path.name)
 
     def test_cache_rejects_wrong_version(self, tmp_path):
         from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
@@ -473,7 +494,7 @@ class TestKazhdanLusztigPolynomials:
         bad_path.write_text(
             json.dumps(
                 {
-                    "cache_version": kl.CACHE_VERSION + 1,
+                    "cache_version": kl.CACHE_VERSION_experiment + 1,
                     "cartan_type": str(W.cartan_type()),
                     "value_kind": "Q_at_one",
                     "Q_at_one_cache": {},
@@ -481,7 +502,7 @@ class TestKazhdanLusztigPolynomials:
             )
         )
 
-        assert not kl.load_cache(bad_path.name)
+        assert not kl.load_cache_experiment(bad_path.name)
 
     def test_cache_rejects_legacy_dat_payload(self, tmp_path):
         from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
@@ -491,87 +512,4 @@ class TestKazhdanLusztigPolynomials:
         legacy_path = tmp_path / "legacy.dat"
         legacy_path.write_text(json.dumps({"old": "format"}))
 
-        assert not kl.load_cache(legacy_path.name)
-
-
-class TestFormalCharacter:
-    """Tests for FormalCharacter class."""
-
-    def test_character_addition(self):
-        """Character addition works correctly."""
-        from pyw.core.character import FormalCharacter
-
-        ch1 = FormalCharacter({0: 1, 1: 2}, max_grade=5)
-        ch2 = FormalCharacter({0: 1, 1: 1, 2: 1}, max_grade=5)
-
-        result = ch1 + ch2
-        assert result[0] == 2
-        assert result[1] == 3
-        assert result[2] == 1
-
-    def test_character_scalar_multiplication(self):
-        """Scalar multiplication works correctly."""
-        from pyw.core.character import FormalCharacter
-
-        ch = FormalCharacter({0: 1, 1: 2, 2: 3}, max_grade=5)
-        result = 2 * ch
-
-        assert result[0] == 2
-        assert result[1] == 4
-        assert result[2] == 6
-
-    def test_character_shift(self):
-        """Grade shift works correctly."""
-        from pyw.core.character import FormalCharacter
-
-        ch = FormalCharacter({0: 1, 1: 2}, max_grade=5)
-        shifted = ch.shift(2)
-
-        assert shifted[0] == 0
-        assert shifted[2] == 1
-        assert shifted[3] == 2
-
-    def test_character_truncate(self):
-        """Truncation works correctly."""
-        from pyw.core.character import FormalCharacter
-
-        ch = FormalCharacter({0: 1, 1: 2, 2: 3, 3: 4}, max_grade=10)
-        truncated = ch.truncate(2)
-
-        assert truncated[0] == 1
-        assert truncated[1] == 2
-        assert truncated[2] == 3
-        assert truncated[3] == 0
-
-
-class TestWeylKacDenominator:
-    """Tests for Weyl-Kac denominator."""
-
-    def test_inverse_denominator_leading_term(self):
-        """Inverse denominator has leading coefficient 1."""
-        from pyw.core.character import WeylKacDenominator
-        from pyw.core.affine_lie_algebra import AffineLieAlgebra
-
-        ala = AffineLieAlgebra(["A", 2, 1])
-        denom = WeylKacDenominator(ala)
-
-        inv = denom.inverse(max_grade=5)
-        assert inv[0] == 1
-
-
-class TestVermaCharacter:
-    """Tests for Verma module character."""
-
-    def test_verma_character_exists(self):
-        """Verma character can be computed."""
-        from pyw.core.character import VermaCharacter
-        from pyw.core.affine_lie_algebra import AffineLieAlgebra
-        from pyw.core.affine_weight import AffineWeight
-
-        ala = AffineLieAlgebra(["A", 2, 1])
-        Lambda = AffineWeight.affine_fundamental_weight(ala, 1)
-
-        verma = VermaCharacter(ala, Lambda)
-        ch = verma.character(max_grade=3)
-
-        assert ch[0] != 0
+        assert not kl.load_cache_experiment(legacy_path.name)

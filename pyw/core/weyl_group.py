@@ -689,7 +689,7 @@ class AffineWeylGroupSemidirect:
 
         # 用 translations 构建半直积元素
         if translations is not None:
-            translation_vectors = self._translation_vectors_from_inputs(
+            translation_vectors = self._translations_to_coroots(
                 translations=translations,
             )
         else:
@@ -709,7 +709,7 @@ class AffineWeylGroupSemidirect:
                         beta += int(c) * basis[int(i)]
                 generated_vectors.append(beta)
 
-            translation_vectors = self._translation_vectors_from_inputs(
+            translation_vectors = self._translations_to_coroots(
                 translations=generated_vectors,
             )
 
@@ -727,7 +727,7 @@ class AffineWeylGroupSemidirect:
 
         return result
 
-    def _translation_vectors_from_inputs(
+    def _translations_to_coroots(
         self,
         *,
         translations: Iterable[Any] | None,

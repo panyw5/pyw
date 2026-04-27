@@ -34,23 +34,6 @@ def test_kl_character_numerator_terms_are_available():
 
 
 @pytest.mark.sage
-def test_kl_character_returns_formal_character():
-    from pyw.core.affine_lie_algebra import AffineLieAlgebra
-    from pyw.core.affine_weight import AffineWeight
-    from pyw.core.character import FormalCharacter, KazhdanLusztigCharacter
-
-    ala = AffineLieAlgebra(["A", 2, 1])
-    lam = AffineWeight.affine_fundamental_weight(ala, 1)
-    kl_char = KazhdanLusztigCharacter(ala)
-
-    ch = kl_char.formal_character(lam, order=1)
-
-    assert isinstance(ch, FormalCharacter)
-    assert ch.max_grade == 1
-    assert ch[0] != 0
-
-
-@pytest.mark.sage
 def test_kl_character_numerator_terms_accept_explicit_translations():
     from pyw.core.affine_lie_algebra import AffineLieAlgebra
     from pyw.core.affine_weight import AffineWeight

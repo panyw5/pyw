@@ -32,13 +32,13 @@ def test_kl_character_matches_integrable_module_character():
     lam = AffineWeight.affine_fundamental_weight(ala, 0)
 
     kl_char = KazhdanLusztigCharacter(ala)
-    int_char = IntegrableModuleCharacter(lam)
+    int_char = IntegrableModuleCharacter(ala)
 
     q = var("q")
 
     for order in range(4):
         kl_result = kl_char.character(lam, order=order)
-        int_result = int_char.character(order)
+        int_result = int_char.character(lam, order)
 
         for grade in range(order + 1):
             kl_coeff = kl_result.coefficient(q, grade)
@@ -102,9 +102,7 @@ def test_kl_character_accepts_manual_translations():
 
 
 @pytest.mark.sage
-def test_kl_formal_character_differs_from_character():
-    from sage.all import var
-
+def test_kl_character_accepts_show_progress_and_debug():
     from pyw.core.affine_lie_algebra import AffineLieAlgebra
     from pyw.core.affine_weight import AffineWeight
     from pyw.core.character import KazhdanLusztigCharacter
@@ -113,17 +111,11 @@ def test_kl_formal_character_differs_from_character():
     lam = AffineWeight.affine_fundamental_weight(ala, 0)
     kl_char = KazhdanLusztigCharacter(ala)
 
-    q = var("q")
-    z1 = var("z1")
-    z2 = var("z2")
+    result_default = kl_char.character(lam, order=1)
+    result_progress = kl_char.character(lam, order=1, show_progress=True)
+    result_debug = kl_char.character(lam, order=1, debug=True)
+    result_both = kl_char.character(lam, order=1, show_progress=True, debug=True)
 
-    formal_result = kl_char.formal_character(lam, order=3)
-    ws_result = kl_char.character(lam, order=3)
-
-    for grade in range(4):
-        formal_coeff = formal_result[grade]
-        ws_coeff = ws_result.coefficient(q, grade)
-
-        if grade > 0:
-            ws_dim = ws_coeff.subs({z1: 1, z2: 1})
-            assert formal_coeff != ws_dim
+    assert result_default == result_progress
+    assert result_default == result_debug
+    assert result_default == result_both

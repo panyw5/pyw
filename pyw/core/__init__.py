@@ -18,9 +18,6 @@ from .affine_weight import (
 from .bruhat import BruhatOrder, ParabolicSubgroup, CosetRepresentative
 from .kazhdan_lusztig import KazhdanLusztigPolynomials
 from .character import (
-    FormalCharacter,
-    WeylKacDenominator,
-    VermaCharacter,
     IntegrableModuleCharacter,
     KazhdanLusztigCharacter,
     KazhdanLusztigData,
@@ -46,9 +43,6 @@ __all__ = [
     "KazhdanLusztigData",
     "KLNumeratorTerm",
     # Character computation
-    "FormalCharacter",
-    "WeylKacDenominator",
-    "VermaCharacter",
     "IntegrableModuleCharacter",
     "KazhdanLusztigCharacter",
 ]

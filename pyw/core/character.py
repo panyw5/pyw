@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass
 from itertools import product
+import time
 from typing import TYPE_CHECKING, Any, Dict, Iterable, Iterator, List, Optional, Tuple
 
 from sage.all import IntegrableRepresentation as SageIntegrableRepresentation
@@ -1211,10 +1212,9 @@ class KazhdanLusztigCharacter:
 
         terms: list[KLNumeratorTerm] = []
         for representative in tqdm_bar(weyl_list, desc="KL numerator terms", leave=True):
-            coefficient = self.kl.affine_bounded_parabolic_Q_tilde(
+            coefficient = self.kl.Q_tilde(
                 lower,
                 representative,
-                candidates=W,
                 stabilizer_candidates=stabilizer,
                 at_one=True,
             )
@@ -1327,9 +1327,14 @@ class KazhdanLusztigCharacter:
     ) -> Any:
         from sage.all import simplify as sage_simplify
 
+        total_started = time.perf_counter()
         print(f"[KL] character: START  λ̂ = {lambda_hat},  order = {order}", flush=True)
         q = var("q")
 
+        self.kl.reset_profile_stats()
+        self.kl.set_profiling(True)
+
+        numerator_started = time.perf_counter()
         numerator = self.numerator_q_series(
             lambda_hat,
             order=order,
@@ -1338,9 +1343,53 @@ class KazhdanLusztigCharacter:
             show_progress=show_progress,
             debug=debug,
         )
-        denominator = self.denominator_q_series(order)
+        numerator_seconds = time.perf_counter() - numerator_started
 
+        denominator_started = time.perf_counter()
+        denominator = self.denominator_q_series(order)
+        denominator_seconds = time.perf_counter() - denominator_started
+
+        ratio_started = time.perf_counter()
         print("[KL] character: computing ratio and Taylor expansion …", flush=True)
         result = sage_simplify((numerator / denominator).taylor(q, 0, order))
+        ratio_seconds = time.perf_counter() - ratio_started
+
+        total_seconds = time.perf_counter() - total_started
+        stats = self.kl.profile_stats()
+        q_calls = int(stats.get("Q_calls", 0))
+        q_time = float(stats.get("Q_total_seconds", 0.0))
+        invpol_calls = int(stats.get("Q_invpol_calls", 0))
+        invpol_time = float(stats.get("Q_invpol_seconds", 0.0))
+        q_tilde_calls = int(stats.get("Q_tilde_calls", 0))
+        q_tilde_time = float(stats.get("Q_tilde_total_seconds", 0.0))
+        q_tilde_terms = int(stats.get("Q_tilde_stabilizer_terms", 0))
+        q_cache_hits = int(stats.get("Q_cache_hits_at_one", 0)) + int(
+            stats.get("Q_cache_hits_poly", 0)
+        )
+        print(
+            (
+                "[KL][timing] total={:.3f}s | numerator={:.3f}s | denominator={:.3f}s "
+                "| ratio+taylor={:.3f}s"
+            ).format(total_seconds, numerator_seconds, denominator_seconds, ratio_seconds),
+            flush=True,
+        )
+        print(
+            (
+                "[KL][timing] Q_tilde: calls={} terms={} time={:.3f}s | "
+                "Q: calls={} cache_hits={} time={:.3f}s | "
+                "invpol: calls={} time={:.3f}s"
+            ).format(
+                q_tilde_calls,
+                q_tilde_terms,
+                q_tilde_time,
+                q_calls,
+                q_cache_hits,
+                q_time,
+                invpol_calls,
+                invpol_time,
+            ),
+            flush=True,
+        )
+        self.kl.set_profiling(False)
         print("[KL] character: DONE", flush=True)
         return result

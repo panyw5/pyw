@@ -1576,41 +1576,6 @@ class AffineLieAlgebra:
         k = sum(comarks[i] * dynkin_labels.get(i, 0) for i in comarks.keys())
         return k
 
-    def lambda0_from_level(self, k: int, finite_labels: Dict[int, int]) -> int:
-        """
-        Compute λ₀ from level k and finite Dynkin labels.
-
-        Following Di Francesco Eq. (14.57):
-            λ₀ = k - (λ, θ) = k - Σ a_i λ_i
-
-        Parameters
-        ----------
-        k : int
-            The level
-        finite_labels : dict
-            Dictionary of finite Dynkin labels (indices 1, 2, ..., r)
-
-        Returns
-        -------
-        int
-            The zeroth Dynkin label λ₀
-
-        Examples
-        --------
-        >>> ala = AffineLieAlgebra(['A', 2, 1])
-        >>> # For k=2 and finite labels {1: 1, 2: 0}:
-        >>> # λ₀ = 2 - (1*1 + 1*0) = 1
-        >>> ala.lambda0_from_level(2, {1: 1, 2: 0})
-        1
-
-        Notes
-        -----
-        Di Francesco Eq. (14.57): λ₀ = k - (λ, θ)
-        """
-        marks = self.marks
-        # Sum over finite marks: (λ, θ) = Σ_{i>0} a_i λ_i
-        theta_dot_lambda = sum(marks[i] * finite_labels.get(i, 0) for i in marks.keys() if i != 0)
-        return k - theta_dot_lambda
 
     def is_dominant(self, dynkin_labels: Dict[int, int]) -> bool:
         """

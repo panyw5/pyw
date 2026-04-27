@@ -40,7 +40,7 @@ References
 from __future__ import annotations
 from typing import TYPE_CHECKING, Union, Optional, Dict, Any, Tuple
 from fractions import Fraction
-from sage.all import RootSystem, QQ, ZZ, Integer
+from sage.all import RootSystem, QQ, ZZ, Integer, vector
 
 if TYPE_CHECKING:
     from .affine_lie_algebra import AffineLieAlgebra
@@ -558,7 +558,7 @@ class AffineWeight:
 
         return cls(algebra, finite_part, level=level, grade=grade)
 
-    def to_sagemath(self) -> Any:
+    def to_sagemath(self, *, extended: bool = True) -> Any:
         """
         Convert to a SageMath affine weight.
 
@@ -567,20 +567,30 @@ class AffineWeight:
         1. Computing λ₀ from level and finite Dynkin labels
         2. Constructing Σ λ_i Λ_i in the affine weight lattice
 
-        Note: The grade n is lost in this conversion as SageMath
-        affine weights don't track L₀ eigenvalues.
+        By default this returns the affine Weyl group's native action-domain
+        element, extending the ordinary affine weight coordinates with the
+        explicit grade. Pass ``extended=False`` to obtain the ordinary SageMath
+        affine weight.
+
+        Parameters
+        ----------
+        extended : bool, optional
+            If True (default), return the affine Weyl group's native action-domain
+            element, augmenting the usual affine weight coordinates with the explicit
+            grade. If False, return the ordinary SageMath affine weight.
 
         Returns
         -------
         weight
-            The SageMath affine weight
+            The affine Weyl action-domain weight when ``extended=True``, or the
+            ordinary SageMath affine weight when ``extended=False``.
 
         Examples
         --------
         >>> ala = AffineLieAlgebra(['A', 2, 1])
         >>> Lambda_finite = ala._finite_root_system.weight_lattice().fundamental_weights()
         >>> w = AffineWeight(ala, Lambda_finite[1], level=1, grade=0)
-        >>> sage_w = w.to_sagemath()
+        >>> sage_w = w.to_sagemath(extended=False)
         >>> # sage_w should be the affine Λ₁
 
         Notes
@@ -591,24 +601,20 @@ class AffineWeight:
         if not self.algebra.is_affine:
             raise ValueError("Algebra must be affine type for this conversion")
 
-        # Get finite Dynkin labels from finite_part
-        mc = self.finite_part.monomial_coefficients()
-
-        # Convert to dict with integer keys
-        finite_labels = {i: mc.get(i, 0) for i in mc.keys()}
-
-        # Compute λ₀ = k - (λ, θ) = k - Σ a_i λ_i
-        lambda0 = self.algebra.lambda0_from_level(int(self.level), finite_labels)
-
-        # Build affine weight using integer coefficients
-        # Use fundamental_weights_sage() to get SageMath native weights
+        labels = self.dynkin_labels()
         affine_Lambda = self.algebra.fundamental_weights_sage()
-        result = int(lambda0) * affine_Lambda[0]
-        for i, coeff in finite_labels.items():
+        result = affine_Lambda[0].parent().zero()
+        for i, coeff in labels.items():
             if coeff != 0 and i in affine_Lambda:
-                result += int(coeff) * affine_Lambda[i]
+                result += QQ(coeff) * affine_Lambda[i]
 
-        return result
+        if not extended:
+            return result
+
+        group = self.algebra.affine_weyl_group_sage()
+        domain = group.domain()
+        coords = list(result.to_vector()) + [self.grade]
+        return domain.from_vector(vector(QQ, coords))
 
     def to_legacy_expression(self) -> str:
         if not self.algebra.is_affine:
