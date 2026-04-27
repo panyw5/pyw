@@ -238,6 +238,19 @@ class TestTranslation:
         # New n should be -1/3
         assert result.grade == -QQ(1) / QQ(3)
 
+    def test_translation_accepts_affine_fundamental_weight_input(self):
+        """Translation should work on affine_fundamental_weights() values."""
+        ala = AffineLieAlgebra(["A", 2, 1])
+        alpha_vee = ala.simple_coroots()[1]
+        weight = ala.affine_fundamental_weights()[1]
+
+        result = ala.translation(alpha_vee, weight)
+
+        assert isinstance(result, AffineWeight)
+        assert result.level == weight.level
+        assert result.finite_part == 2 * ala._finite_root_system.weight_space().fundamental_weights()[1]
+        assert result.grade == -1
+
 
 class TestSpecialElements:
     """Test special elements δ, θ, α₀, ρ̂."""

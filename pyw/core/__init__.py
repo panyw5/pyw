@@ -21,6 +21,7 @@ from .character import (
     FormalCharacter,
     WeylKacDenominator,
     VermaCharacter,
+    IntegrableModuleCharacter,
     KazhdanLusztigCharacter,
     KazhdanLusztigData,
     KLNumeratorTerm,
@@ -48,5 +49,6 @@ __all__ = [
     "FormalCharacter",
     "WeylKacDenominator",
     "VermaCharacter",
+    "IntegrableModuleCharacter",
     "KazhdanLusztigCharacter",
 ]

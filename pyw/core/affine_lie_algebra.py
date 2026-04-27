@@ -784,17 +784,33 @@ class AffineLieAlgebra:
         """
         from .affine_weight import AffineWeight
 
-        lambda_finite = weight.finite_part
+        finite_weight_space = self._finite_root_system.weight_space() if self.is_affine else self._root_system.weight_space()
+
+        if hasattr(weight, "finite_part_in_fundamental_weight_basis"):
+            try:
+                lambda_finite = weight.finite_part_in_fundamental_weight_basis()
+            except TypeError:
+                if weight.finite_part == 0:
+                    lambda_finite = finite_weight_space.zero()
+                else:
+                    raise
+        else:
+            lambda_finite = weight.finite_part
+            if lambda_finite == 0:
+                lambda_finite = finite_weight_space.zero()
         k = weight.level
         n = weight.grade
 
-        # Convert alpha_vee to the same space as lambda_finite if needed
+        # Convert alpha_vee to the same finite weight space as lambda_finite.
         # Coweights are in coweight_lattice, but we need to add to weight_lattice/space
         # IMPORTANT: Coweights must be reconstructed using fundamental_weights, NOT simple_roots!
         # For coweight Λ_i^∨ with coefficient c_i, we need c_i * Λ_i (fundamental weight),
         # not c_i * α_i (simple root), since Λ_i^∨ is dual to α_i, not to Λ_i.
         if hasattr(lambda_finite, "parent"):
-            alpha_vee_in_parent = self.coweight_to_weight(alpha_vee, finite=not self.is_affine)
+            # translation acts on the finite part λ of (λ; k; n), so the
+            # translation direction must live in the same finite weight space
+            # as weight.finite_part even when self is affine.
+            alpha_vee_in_parent = self.coweight_to_weight(alpha_vee, finite=True)
         else:
             alpha_vee_in_parent = alpha_vee
 
