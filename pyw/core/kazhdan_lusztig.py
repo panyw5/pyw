@@ -1018,7 +1018,7 @@ class KazhdanLusztigPolynomials:
         y_min: Any,
         *,
         stabilizer_candidates: Iterable[Any],
-        at_one: bool = False,
+        at_one: bool = True,
         word_cache: Optional[Dict[int, tuple]] = None,
     ) -> Any:
         q_tilde_started = time.perf_counter() if self._profiling_enabled else None
