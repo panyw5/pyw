@@ -154,7 +154,7 @@ def _minus_delta_n(
     return linear + QQ(level) * quadratic / QQ(2)
 
 
-def _legacy_affine_dynkin_finite_labels(
+def _affine_dynkin_finite_labels(
     algebra: "AffineLieAlgebra", weight: "AffineWeight"
 ) -> List[Any]:
     sage_weight = weight.to_sagemath(extended=False)
@@ -185,7 +185,7 @@ def _translations_by_n_shift_bnb_impl(
     if level == 0:
         raise ValueError("Translation enumeration by n-shift requires non-zero level")
 
-    linear_coeffs = _legacy_affine_dynkin_finite_labels(algebra, weight)
+    linear_coeffs = _affine_dynkin_finite_labels(algebra, weight)
     gram = _finite_coroot_gram_matrix(algebra, idxs)
     radius = _translation_coefficient_radius(
         level=level,
@@ -347,7 +347,7 @@ def _translations_by_n_shift_impl(
     if QQ(weight.level) == 0:
         raise ValueError("Translation enumeration by n-shift requires non-zero level")
 
-    linear_coeffs = _legacy_affine_dynkin_finite_labels(algebra, weight)
+    linear_coeffs = _affine_dynkin_finite_labels(algebra, weight)
     gram = _finite_coroot_gram_matrix(algebra, idxs)
     radius = _translation_coefficient_radius(
         level=QQ(weight.level),
@@ -942,19 +942,7 @@ class KazhdanLusztigCharacter:
             finite_affine_elements_cache=self._finite_affine_elements_cache,
         )
 
-    def _legacy_stabilizer_and_quotient_representatives(
-        self,
-        Lambda_hat: "AffineWeight",
-        *,
-        candidates: Iterable[Any],
-    ) -> Tuple[List[Any], List[Any]]:
-        return self._collect_stabilizer_and_quotient_representatives(
-            self.algebra,
-            Lambda_hat,
-            candidates=candidates,
-        )
-
-    def _legacy_denominator_candidates(self, order: int) -> List[Any]:
+    def _denominator_candidates(self, order: int) -> List[Any]:
         rho_hat = self.algebra.affine_rho()
         affine_weyl_group = self.algebra.affine_weyl_group()
         denominator_translations = _translations_by_n_shift_impl(
@@ -1067,7 +1055,8 @@ class KazhdanLusztigCharacter:
         # ── Step 4: Compute stabilizer W_{Λ,0} ──
         # Mirrors CharacterNum lines 993-994
         print("[character_numerator_legacy] computing stabilizer WΛ₀ …", flush=True)
-        stabilizer, quotient_representatives = self._legacy_stabilizer_and_quotient_representatives(
+        stabilizer, quotient_representatives = self._collect_stabilizer_and_quotient_representatives(
+            self.algebra,
             Lambda_hat,
             candidates=W_affine_as_words,
         )
@@ -1217,7 +1206,7 @@ class KazhdanLusztigCharacter:
 
     def denominator_weight_terms(self, order: int) -> List[Dict["AffineWeight", Any]]:
         rho_hat = self.algebra.affine_rho()
-        denominator_candidates = self._legacy_denominator_candidates(order)
+        denominator_candidates = self._denominator_candidates(order)
         rho_sage = rho_hat.to_sagemath(extended=True)
         denominator_weight_terms = [
             {
