@@ -956,7 +956,7 @@ class KazhdanLusztigCharacter:
         )
         return self._build_W_affine_as_words_direct(denominator_coroots)
 
-    def character_numerator_legacy(
+    def character_numerator(
         self,
         lambda_hat: "AffineWeight",
         *,
@@ -1001,10 +1001,10 @@ class KazhdanLusztigCharacter:
         Lambda_plus_rho = Lambda_hat + rho_hat
 
         logger(
-            f"[character_numerator_legacy] λ̂ = {lambda_hat},  Λ̂ = {Lambda_hat},  order = {order}"
+            f"[character_numerator] λ̂ = {lambda_hat},  Λ̂ = {Lambda_hat},  order = {order}"
         )
         print(
-            f"[character_numerator_legacy] Computing KL numerator: "
+            f"[character_numerator] Computing KL numerator: "
             f"λ̂ = {lambda_hat},  Λ̂ = {Lambda_hat},  order = {order}",
             flush=True,
         )
@@ -1017,7 +1017,7 @@ class KazhdanLusztigCharacter:
 
         if translations is None:
             print(
-                f"[character_numerator_legacy] computing translations "
+                f"[character_numerator] computing translations "
                 f"(order_base={order_base}, translation_order={translation_order}) …",
                 flush=True,
             )
@@ -1027,13 +1027,13 @@ class KazhdanLusztigCharacter:
                 max_neg_shift=QQ(translation_order),
             )
             print(
-                f"[character_numerator_legacy] → {len(translation_elements)} translation(s)",
+                f"[character_numerator] → {len(translation_elements)} translation(s)",
                 flush=True,
             )
         else:
             translation_elements = list(translations)
             print(
-                f"[character_numerator_legacy] using {len(translation_elements)} provided translation(s)",
+                f"[character_numerator] using {len(translation_elements)} provided translation(s)",
                 flush=True,
             )
 
@@ -1045,23 +1045,23 @@ class KazhdanLusztigCharacter:
             translations=translation_elements,
         )
 
-        print("[character_numerator_legacy] building finite×translation candidates …", flush=True)
+        print("[character_numerator] building finite×translation candidates …", flush=True)
         W_affine_as_words = self._build_W_affine_as_words_direct(coroots)
         print(
-            f"[character_numerator_legacy] → {len(W_affine_as_words)} candidate(s)",
+            f"[character_numerator] → {len(W_affine_as_words)} candidate(s)",
             flush=True,
         )
 
         # ── Step 4: Compute stabilizer W_{Λ,0} ──
         # Mirrors CharacterNum lines 993-994
-        print("[character_numerator_legacy] computing stabilizer WΛ₀ …", flush=True)
+        print("[character_numerator] computing stabilizer WΛ₀ …", flush=True)
         stabilizer, quotient_representatives = self._collect_stabilizer_and_quotient_representatives(
             self.algebra,
             Lambda_hat,
             candidates=W_affine_as_words,
         )
         print(
-            f"[character_numerator_legacy] → {len(stabilizer)} stabilizer(s), "
+            f"[character_numerator] → {len(stabilizer)} stabilizer(s), "
             f"{len(quotient_representatives)} quotient rep(s)",
             flush=True,
         )
@@ -1072,20 +1072,20 @@ class KazhdanLusztigCharacter:
         rho_sage = rho_hat.to_sagemath(extended=True)
         target_sage = Lambda_plus_rho.to_sagemath(extended=True)
 
-        print("[character_numerator_legacy] computing dot-orbit …", flush=True)
+        print("[character_numerator] computing dot-orbit …", flush=True)
         lambda_orbit_under_weyl_dot = []
         for w in tqdm_bar(W_affine_as_words, desc="dot-orbit", leave=False):
             acted = w.action(target_sage) - rho_sage
             lambda_orbit_under_weyl_dot.append(acted)
         print(
-            f"[character_numerator_legacy] → {len(lambda_orbit_under_weyl_dot)} orbit element(s)",
+            f"[character_numerator] → {len(lambda_orbit_under_weyl_dot)} orbit element(s)",
             flush=True,
         )
 
         # ── Step 6: Coset deduplication ──
         # Mirrors CharacterNum lines 1007-1032
         # For each unique image weight, keep the shortest Weyl representative
-        print("[character_numerator_legacy] building cosets …", flush=True)
+        print("[character_numerator] building cosets …", flush=True)
         weights_to_be_summed: list[Any] = []
         cosets: list[Any] = []
         weight_index_by_key: Dict[Tuple[Any, ...], int] = {}
@@ -1102,23 +1102,23 @@ class KazhdanLusztigCharacter:
                 cosets[current_index] = w
 
         print(
-            f"[character_numerator_legacy] → {len(weights_to_be_summed)} unique weight(s)",
+            f"[character_numerator] → {len(weights_to_be_summed)} unique weight(s)",
             flush=True,
         )
 
         # ── Step 7: Bruhat filter ──
         # Mirrors CharacterNum lines 1034-1039
         # Keep only coset representatives where w_T^{-1}λ ≤ w'
-        print("[character_numerator_legacy] filtering by Bruhat order …", flush=True)
+        print("[character_numerator] filtering by Bruhat order …", flush=True)
         weyl_to_be_summed = [wp for wp in cosets if w_to_lambda.bruhat_le(wp)]
         print(
-            f"[character_numerator_legacy] → {len(weyl_to_be_summed)} Weyl element(s) to sum",
+            f"[character_numerator] → {len(weyl_to_be_summed)} Weyl element(s) to sum",
             flush=True,
         )
 
         # ── Step 8: Compute Q̃ coefficients ──
         # Mirrors CharacterNum lines 1047-1068
-        print("[character_numerator_legacy] computing Q̃ coefficients …", flush=True)
+        print("[character_numerator] computing Q̃ coefficients …", flush=True)
         result: list[Any] = []
 
         for representative in tqdm_bar(weyl_to_be_summed, desc="Q̃ computation", leave=True):
@@ -1128,7 +1128,7 @@ class KazhdanLusztigCharacter:
                 stabilizer_candidates=stabilizer,
             )
             logger(
-                f"[character_numerator_legacy]   w = {representative}  "
+                f"[character_numerator]   w = {representative}  "
                 f"(len={representative.length()})  Q̃ = {coefficient}"
             )
             if coefficient == 0:
@@ -1141,7 +1141,7 @@ class KazhdanLusztigCharacter:
             result.append({weight: coefficient})
 
         print(
-            f"[character_numerator_legacy] → {len(result)} non-zero term(s)",
+            f"[character_numerator] → {len(result)} non-zero term(s)",
             flush=True,
         )
         return result
@@ -1162,7 +1162,7 @@ class KazhdanLusztigCharacter:
             manual_translations if manual_translations is not None else translations
         )
 
-        legacy_terms = self.character_numerator_legacy(
+        legacy_terms = self.character_numerator(
             lambda_hat,
             order=order,
             translations=translation_source,

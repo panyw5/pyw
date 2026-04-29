@@ -14,8 +14,8 @@ fw = ala.fundamental_weights()
 lam = -2 * fw[0]
 kl_char = KazhdanLusztigCharacter(ala)
 
-# Run character_numerator_legacy to get the terms
-result = kl_char.character_numerator_legacy(lam, order=2)
+# Run character_numerator to get the terms
+result = kl_char.character_numerator(lam, order=2)
 
 # Check the first few terms
 print(f"Total terms: {len(result)}")

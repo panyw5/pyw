@@ -1,4 +1,4 @@
-"""Compare all three: CharacterNum, character_numerator_legacy, numerator_terms.
+"""Compare all three: CharacterNum, character_numerator, numerator_terms.
 
 Run with: sage -python demos/compare_all_three.py
 """
@@ -31,9 +31,9 @@ def compare_all(algebra_type, lam_expr, order):
     lam = eval(lam_expr, {"fw": fw, "ala": ala})
     kl_char = KazhdanLusztigCharacter(ala)
 
-    # ── character_numerator_legacy (pyw) ──
-    print("\n[legacy] Running character_numerator_legacy …")
-    pyw_result = kl_char.character_numerator_legacy(lam, order=order)
+    # ── character_numerator (pyw) ──
+    print("\n[legacy] Running character_numerator …")
+    pyw_result = kl_char.character_numerator(lam, order=order)
     pyw_map = {}
     for entry in pyw_result:
         for weight, coeff in entry.items():
