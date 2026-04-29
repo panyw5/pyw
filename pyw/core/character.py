@@ -863,34 +863,6 @@ class KazhdanLusztigCharacter:
         return _apply_affine_element_to_weight(algebra, element, weight)
 
     @classmethod
-    def _collect_quotient_representatives(
-        cls,
-        algebra: "AffineLieAlgebra",
-        Lambda_hat: "AffineWeight",
-        *,
-        candidates: Iterable[Any],
-    ) -> List[Any]:
-        from .affine_weight import AffineWeight
-
-        rho_hat = algebra.affine_rho()
-        target = Lambda_hat + rho_hat
-        target_domain = target.to_sagemath()
-        by_weight: Dict[Tuple[Tuple[int, Any], ...], Any] = {}
-        for w in candidates:
-            try:
-                acted = w.action(target_domain)
-                image = AffineWeight.from_sagemath(algebra, acted) - rho_hat
-            except Exception:
-                image = cls._apply_element_to_weight(algebra, w, target) - rho_hat
-            key = tuple(sorted(image.dynkin_labels().items())) + ((-1, image.grade),)
-            current = by_weight.get(key)
-            if current is None or int(w.length()) < int(current.length()):
-                by_weight[key] = w
-        return sorted(
-            by_weight.values(), key=lambda w: (int(w.length()), tuple(_element_word_list(w)))
-        )
-
-    @classmethod
     def _collect_stabilizer_and_quotient_representatives(
         cls,
         algebra: "AffineLieAlgebra",
