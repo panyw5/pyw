@@ -460,7 +460,7 @@ class Alg:
         return translations
 
     def GetTranslationsBynShift(self, weight, order=1, max_m=5, order_min=None):
-        print(">>> Getting translations for {} to order {}".format(weight, order), flush=True)
+        print(">>> Getting translations for {} to n-diff {}".format(weight, order), flush=True)
         self.order = order
         if order_min is None:
             order_min = 0
@@ -904,7 +904,7 @@ class Alg:
             print("wTollambda = ", self.wTollambda, ", Λ = ", self.llambda, flush=True)
             return llambda
 
-        print("Finding Λ for generic λ", flush=True)
+        print("    Finding Λ for generic λ", flush=True)
         rho = self.rho
         lambda_plus_rho = llambda + rho
         checked = 0
@@ -922,7 +922,7 @@ class Alg:
                     self.Lambda = acted_weight
                     self.wToLambda = w_to_Lambda
                     self.wTollambda = self.wToLambda.inverse()
-                    print("wTollambda = ", self.wTollambda, ", Λ = ", self.Lambda, flush=True)
+                    print("    wTollambda = ", self.wTollambda, ", Λ = ", self.Lambda, flush=True)
                     end = time.time()
                     print(">>> Lambda created: %s s" % str(end - start), "\n", flush=True)
                     return acted_weight
@@ -957,7 +957,7 @@ class Alg:
         # computes the numerator of the KL formula
         # which is a sum over affine Weyl (sub)group
         # or sum over a lots of weights
-        print(">>> Computing Kazhdan-Lusztig numerator.")
+        print(">>> .CharacterNum({}, order={}) Computing Kazhdan-Lusztig numerator.".format(llambda, order))
         rho = self.rho
 
         self.llambda = llambda
@@ -971,15 +971,17 @@ class Alg:
         # If an <order> param is specified, regenerate the self.T
         # and self.W based on the shift in n-value of Λ+ρ up to
         # the <order> param
+        # the -Δn should have upper bound
+        # - Δn <= order + n(Λhat + ρhat) - n(λhat)
         try:
             self.T = self.load_translations(llambda, order)
         except:
             print("\t>>> File not found. Building translations from scratch.")
-            order_min = (
+            order_base = (
                 self.Tolambdakn(self.Lambda + self.rho)[-1] - self.Tolambdakn(self.llambda)[-1]
             )
             self.T = self.get_translations_by_n_shift(
-                Lambda + rho, order_min + order, order_min=None
+                Lambda + rho, order_base + order, order_min=None
             )
             print("\t>>> self.T")
             print(self.T)

@@ -295,7 +295,9 @@ class BruhatOrder:
             return int(w.length())
         if hasattr(w, "reduced_word_list"):
             return len(w.reduced_word_list())
-        return len(w.reduced_word())
+        if hasattr(w, "reduced_word"):
+            return len(w.reduced_word())
+        return len(self.reduced_word(w))
 
     def reduced_word(self, w: Any) -> List[int]:
         """
@@ -314,7 +316,9 @@ class BruhatOrder:
         w = self._ensure_element(w)
         if hasattr(w, "reduced_word_list"):
             return list(w.reduced_word_list())
-        return list(w.reduced_word())
+        if hasattr(w, "reduced_word"):
+            return list(w.reduced_word())
+        return [int(i) for i in w]
 
     # =========================================================================
     # Parabolic Subgroups and Cosets

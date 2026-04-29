@@ -303,11 +303,24 @@ def _sage_element_length(w: Any) -> int:
             return len(w.reduced_word())
         except Exception:
             pass
+    try:
+        return len(w)
+    except Exception:
+        pass
     return 0
 
 
+def _sage_element_reduced_word(w: Any) -> tuple[int, ...]:
+    if hasattr(w, "reduced_word"):
+        try:
+            return tuple(int(i) for i in w.reduced_word())
+        except Exception:
+            pass
+    return tuple(int(i) for i in w)
+
+
 def _sorted_weyl_elements(elements: Iterable[Any]) -> list[Any]:
-    return sorted(elements, key=lambda w: (_sage_element_length(w), tuple(w.reduced_word())))
+    return sorted(elements, key=lambda w: (_sage_element_length(w), _sage_element_reduced_word(w)))
 
 
 def _coerce_word_element(parent: Any, coeff: Any, basis_element: Any) -> Any:
@@ -581,6 +594,9 @@ class AffineWeylGroupSemidirect:
                 _abstract_word=word,
             )
         return self.from_word(word)
+    
+    def generators(self):
+        return [self.simple_reflection(i) for i in range(self.algebra.rank + 1)]
 
     # NOTE:
     # - 输出为 tuple[int, ...]（affine simple reflection indices）

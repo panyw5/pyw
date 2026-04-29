@@ -219,7 +219,18 @@ class TestKazhdanLusztigPolynomials:
                 if bruhat.le(w_i, w_j):
                     p_at_one[i, j] = kl.P(w_i, w_j, at_one=True)
 
-        q_at_one = p_at_one.inverse()
+        # Inverse KL polynomials satisfy Σ_z (-1)^{ℓ(z)-ℓ(x)} P_{x,z} Q_{z,y} = δ_{x,y}.
+        # Build signed incidence matrix S and invert.
+        signed = matrix(QQ, len(interval), len(interval))
+        for i, w_i in enumerate(interval):
+            for j, w_j in enumerate(interval):
+                if bruhat.le(w_i, w_j):
+                    signed[i, j] = (
+                        1
+                        if (int(w_j.length()) - int(w_i.length())) % 2 == 0
+                        else -1
+                    )
+        q_at_one = signed.inverse()
         assert kl.Q(x, y, at_one=True) == q_at_one[0, len(interval) - 1]
 
     def test_Q_full_polynomial_falls_back_to_inversion(self):
@@ -513,3 +524,27 @@ class TestKazhdanLusztigPolynomials:
         legacy_path.write_text(json.dumps({"old": "format"}))
 
         assert not kl.load_cache_experiment(legacy_path.name)
+
+    def test_init_auto_loads_cache_by_default(self, tmp_path):
+        from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
+
+        W = WeylGroup(["A", 2])
+        writer = KazhdanLusztigPolynomials(W, cache_dir=tmp_path)
+        expected = writer.Q(W.one(), W.long_element(), at_one=True)
+        writer.save_cache()
+
+        restored = KazhdanLusztigPolynomials(W, cache_dir=tmp_path)
+        key = (restored._element_key(W.one()), restored._element_key(W.long_element()))
+        assert key in restored._Q_at_one_cache
+        assert restored.Q(W.one(), W.long_element(), at_one=True) == expected
+
+    def test_init_can_disable_auto_load_cache(self, tmp_path):
+        from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
+
+        W = WeylGroup(["A", 2])
+        writer = KazhdanLusztigPolynomials(W, cache_dir=tmp_path)
+        _ = writer.Q(W.one(), W.long_element(), at_one=True)
+        writer.save_cache()
+
+        restored = KazhdanLusztigPolynomials(W, cache_dir=tmp_path, auto_load_cache=False)
+        assert restored._Q_at_one_cache == {}

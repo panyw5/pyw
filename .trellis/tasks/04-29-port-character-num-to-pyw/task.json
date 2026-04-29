@@ -1,0 +1,59 @@
+{
+  "id": "04-29-port-character-num-to-pyw",
+  "name": "04-29-port-character-num-to-pyw",
+  "title": "Port CharacterNum numerator logic to pyw KazhdanLusztigCharacter",
+  "description": "Analyze demos/MyAlgebra.py CharacterNum function step-by-step and port its numerator business logic as a new function in pyw/core/character.py KazhdanLusztigCharacter class.",
+  "status": "pending",
+  "dev_type": "backend",
+  "scope": null,
+  "priority": "P1",
+  "creator": "lelouch",
+  "assignee": "lelouch",
+  "createdAt": "2026-04-29",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "current_phase": 0,
+  "next_action": [
+    {
+      "phase": 0,
+      "action": "start"
+    },
+    {
+      "phase": 1,
+      "action": "implement"
+    },
+    {
+      "phase": 2,
+      "action": "check"
+    },
+    {
+      "phase": 3,
+      "action": "finish"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [
+    {
+      "name": "Analyze CharacterNum step-by-step business logic",
+      "status": "completed"
+    },
+    {
+      "name": "Port CharacterNum logic to new function in KazhdanLusztigCharacter",
+      "status": "pending"
+    },
+    {
+      "name": "Verify ported function produces identical results to existing numerator_terms",
+      "status": "pending"
+    }
+  ],
+  "relatedFiles": [
+    "demos/MyAlgebra.py",
+    "pyw/core/character.py",
+    "pyw/core/kazhdan_lusztig.py"
+  ],
+  "notes": "CharacterNum in MyAlgebra.py is the reference implementation for KL numerator. The existing numerator_terms in KazhdanLusztigCharacter is already its pyw port, but uses prepare_data() delegation. This task creates a new function that mirrors CharacterNum's step ordering exactly.",
+  "package": null
+}

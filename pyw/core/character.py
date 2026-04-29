@@ -795,7 +795,7 @@ class KazhdanLusztigCharacter:
         from .kazhdan_lusztig import KazhdanLusztigPolynomials
 
         self.algebra = algebra
-        self.kl = KazhdanLusztigPolynomials(algebra.affine_weyl_group_sage())
+        self.kl_polynomial = KazhdanLusztigPolynomials(algebra.affine_weyl_group_sage())
         self._finite_affine_elements_cache: Optional[List[Any]] = None
 
     @staticmethod
@@ -876,7 +876,7 @@ class KazhdanLusztigCharacter:
         max_steps: int = 1000,
     ) -> Tuple["AffineWeight", Any]:
         rho_hat = self.algebra.affine_rho()
-        weyl_group = self.kl.weyl_group
+        weyl_group = self.kl_polynomial.weyl_group
 
         def legacy_affine_prefix_coefficients(weight: "AffineWeight") -> list[Any]:
             sage_weight = weight.to_sagemath(extended=False)
@@ -1146,6 +1146,7 @@ class KazhdanLusztigCharacter:
             flush=True,
         )
 
+        # NOTE: data 里面的 translations 似乎在下游 `.numerator_terms()` 里面没有用到？是否有必要构造这玩意？是否只需要 translations_input (list of coroots) 就足够了？
         return KazhdanLusztigData(
             algebra=self.algebra,
             lambda_hat=lambda_hat,
@@ -1159,6 +1160,8 @@ class KazhdanLusztigCharacter:
             quotient_representatives=quotient_representatives,
         )
 
+    # DO NOT USE THIS METHOD
+    # THIS METHOD IS WRONG
     def numerator_terms(
         self,
         lambda_hat: "AffineWeight",
@@ -1206,17 +1209,17 @@ class KazhdanLusztigCharacter:
             elif int(w.length()) < int(cosets[current_index].length()):
                 cosets[current_index] = w
 
-        weyl_list = [wp for wp in cosets if lower.bruhat_le(wp)]
+        weyl_list = [wp for w_index, wp in enumerate(W) if lower.bruhat_le(wp)]
         print(f"[KL] numerator_terms: summing over {len(weyl_list)} Weyl element(s) …", flush=True)
         logger(f"[numerator_terms] w_λ = {lower},  |weyl_to_be_summed| = {len(weyl_list)}")
 
         terms: list[KLNumeratorTerm] = []
         for representative in tqdm_bar(weyl_list, desc="KL numerator terms", leave=True):
-            coefficient = self.kl.Q_tilde(
+            coefficient = self.kl_polynomial.Q_tilde(
                 lower,
                 representative,
                 stabilizer_candidates=stabilizer,
-                at_one=True,
+                at_one=False,
             )
             logger(
                 f"[numerator_terms]   w = {representative}  "
@@ -1235,6 +1238,234 @@ class KazhdanLusztigCharacter:
             )
         print(f"[KL] numerator_terms: → {len(terms)} non-zero term(s)", flush=True)
         return terms
+
+    def character_numerator_legacy(
+        self,
+        lambda_hat: "AffineWeight",
+        *,
+        order: int,
+        Lambda_hat: Optional["AffineWeight"] = None,
+        w_to_lambda: Optional[Any] = None,
+        translations: Optional[Iterable[Any]] = None,
+        show_progress: bool = False,
+        debug: bool = False,
+    ) -> list[Any]:
+        """Port of CharacterNum from demos/MyAlgebra.py.
+
+        Strictly mirrors the 8-step business logic of CharacterNum
+        without using prepare_data::
+
+            1. Determine Λ and w_T^{-1}λ
+            2. Compute translation set T
+            3. Construct W = W_fin × T
+            4. Compute stabilizer W_{Λ,0}
+            5. Compute dot-orbit w·(Λ+ρ)-ρ
+            6. Coset deduplication (keep shortest rep)
+            7. Bruhat filter: w_T^{-1}λ ≤ w'
+            8. Compute Q̃ coefficients
+
+        Returns a list of ``{weight: coefficient}`` dicts,
+        matching CharacterNum's output format exactly.
+        """
+        from .affine_weight import AffineWeight
+
+        tqdm_bar = _get_progress_bar(enabled=show_progress)
+        logger = lambda *args: _debug_log(debug, *args)
+
+        # ── Step 1: Determine Λ and w_T^{-1}λ ──
+        # Mirrors CharacterNum lines 960-969
+        if Lambda_hat is not None and w_to_lambda is not None:
+            pass
+        else:
+            Lambda_hat, w_to_Lambda_hat = self._find_dominant_Lambda(lambda_hat)
+            w_to_lambda = w_to_Lambda_hat.inverse()
+
+        rho_hat = self.algebra.affine_rho()
+        Lambda_plus_rho = Lambda_hat + rho_hat
+
+        logger(
+            f"[character_numerator_legacy] λ̂ = {lambda_hat},  Λ̂ = {Lambda_hat},  order = {order}"
+        )
+        print(
+            f"[character_numerator_legacy] Computing KL numerator: "
+            f"λ̂ = {lambda_hat},  Λ̂ = {Lambda_hat},  order = {order}",
+            flush=True,
+        )
+
+        # ── Step 2: Compute translations ──
+        # Mirrors CharacterNum lines 970-987
+        # order_base = n(Λ+ρ) - n(λ)
+        order_base = int(QQ(Lambda_plus_rho.grade) - QQ(lambda_hat.grade))
+        translation_order = order_base + order
+
+        if translations is None:
+            print(
+                f"[character_numerator_legacy] computing translations "
+                f"(order_base={order_base}, translation_order={translation_order}) …",
+                flush=True,
+            )
+            translation_elements = self._translations_by_n_shift(
+                Lambda_plus_rho,
+                order=translation_order,
+                max_neg_shift=QQ(translation_order),
+            )
+            print(
+                f"[character_numerator_legacy] → {len(translation_elements)} translation(s)",
+                flush=True,
+            )
+        else:
+            translation_elements = list(translations)
+            print(
+                f"[character_numerator_legacy] using {len(translation_elements)} provided translation(s)",
+                flush=True,
+            )
+
+        # ── Step 3: Construct W = W_fin × T ──
+        # Mirrors CharacterNum lines 988-991
+        # Convert translation elements to coroot vectors, then build W_affine
+        affine_weyl_group = self.algebra.affine_weyl_group()
+        coroots = affine_weyl_group._translations_to_coroots(
+            translations=translation_elements,
+        )
+
+        print("[character_numerator_legacy] building finite×translation candidates …", flush=True)
+        W_affine_as_words = self._build_W_affine_as_words_direct(coroots)
+        print(
+            f"[character_numerator_legacy] → {len(W_affine_as_words)} candidate(s)",
+            flush=True,
+        )
+
+        # ── Step 4: Compute stabilizer W_{Λ,0} ──
+        # Mirrors CharacterNum lines 993-994
+        print("[character_numerator_legacy] computing stabilizer WΛ₀ …", flush=True)
+        stabilizer, quotient_representatives = self._legacy_stabilizer_and_quotient_representatives(
+            Lambda_hat,
+            candidates=W_affine_as_words,
+        )
+        print(
+            f"[character_numerator_legacy] → {len(stabilizer)} stabilizer(s), "
+            f"{len(quotient_representatives)} quotient rep(s)",
+            flush=True,
+        )
+
+        # ── Step 5: Compute dot-orbit ──
+        # Mirrors CharacterNum lines 998-1005
+        # dot-action: w·(Λ+ρ)-ρ for all w in W
+        rho_sage = rho_hat.to_sagemath(extended=True)
+        target_sage = Lambda_plus_rho.to_sagemath(extended=True)
+
+        print("[character_numerator_legacy] computing dot-orbit …", flush=True)
+        lambda_orbit_under_weyl_dot = []
+        for w in tqdm_bar(W_affine_as_words, desc="dot-orbit", leave=False):
+            acted = w.action(target_sage) - rho_sage
+            lambda_orbit_under_weyl_dot.append(acted)
+        print(
+            f"[character_numerator_legacy] → {len(lambda_orbit_under_weyl_dot)} orbit element(s)",
+            flush=True,
+        )
+
+        # ── Step 6: Coset deduplication ──
+        # Mirrors CharacterNum lines 1007-1032
+        # For each unique image weight, keep the shortest Weyl representative
+        print("[character_numerator_legacy] building cosets …", flush=True)
+        weights_to_be_summed: list[Any] = []
+        cosets: list[Any] = []
+        weight_index_by_key: Dict[Tuple[Any, ...], int] = {}
+
+        for i, weight in enumerate(lambda_orbit_under_weyl_dot):
+            key = tuple(weight.to_vector())
+            w = W_affine_as_words[i]
+            current_index = weight_index_by_key.get(key)
+            if current_index is None:
+                weight_index_by_key[key] = len(weights_to_be_summed)
+                weights_to_be_summed.append(weight)
+                cosets.append(w)
+            elif int(w.length()) < int(cosets[current_index].length()):
+                cosets[current_index] = w
+
+        print(
+            f"[character_numerator_legacy] → {len(weights_to_be_summed)} unique weight(s)",
+            flush=True,
+        )
+
+        # ── Step 7: Bruhat filter ──
+        # Mirrors CharacterNum lines 1034-1039
+        # Keep only coset representatives where w_T^{-1}λ ≤ w'
+        print("[character_numerator_legacy] filtering by Bruhat order …", flush=True)
+        weyl_to_be_summed = [wp for wp in cosets if w_to_lambda.bruhat_le(wp)]
+        print(
+            f"[character_numerator_legacy] → {len(weyl_to_be_summed)} Weyl element(s) to sum",
+            flush=True,
+        )
+
+        # ── Step 8: Compute Q̃ coefficients ──
+        # Mirrors CharacterNum lines 1047-1068
+        print("[character_numerator_legacy] computing Q̃ coefficients …", flush=True)
+        result: list[Any] = []
+
+        for representative in tqdm_bar(weyl_to_be_summed, desc="Q̃ computation", leave=True):
+            coefficient = self.kl_polynomial.Q_tilde(
+                w_to_lambda,
+                representative,
+                stabilizer_candidates=stabilizer,
+            )
+            logger(
+                f"[character_numerator_legacy]   w = {representative}  "
+                f"(len={representative.length()})  Q̃ = {coefficient}"
+            )
+            if coefficient == 0:
+                continue
+
+            # Compute the image weight: w'·(Λ+ρ)-ρ
+            acted_weight = representative.action(target_sage) - rho_sage
+            weight = _sage_weight_to_affine(self.algebra, acted_weight)
+
+            result.append({weight: coefficient})
+
+        print(
+            f"[character_numerator_legacy] → {len(result)} non-zero term(s)",
+            flush=True,
+        )
+        return result
+
+    def numerator_q_series_legacy(
+        self,
+        lambda_hat: "AffineWeight",
+        *,
+        order: int,
+        translations: Optional[Iterable[Any]] = None,
+        manual_translations: Optional[Iterable[Any]] = None,
+        show_progress: bool = False,
+        debug: bool = False,
+    ) -> Any:
+        if translations is not None and manual_translations is not None:
+            raise ValueError("Pass either translations or manual_translations, not both")
+        translation_source = (
+            manual_translations if manual_translations is not None else translations
+        )
+
+        legacy_terms = self.character_numerator_legacy(
+            lambda_hat,
+            order=order,
+            translations=translation_source,
+            show_progress=show_progress,
+            debug=debug,
+        )
+        q = var("q")
+        # DON'T FORGET TO USE .subs({q:1}) for the coefficients
+        numerator = sum(
+            [
+                SR(coefficient).subs(
+                    {q: 1}) * self._character_contribution_from_weight(weight)
+                for entry in legacy_terms
+                for weight, coefficient in entry.items()
+            ]
+        )
+        print(
+            f"[KL] numerator_q_series_legacy: built from {len(legacy_terms)} weight term(s)",
+            flush=True,
+        )
+        return numerator
 
     def _character_contribution_from_weight(self, weight: "AffineWeight") -> Any:
         algebra = self.algebra
@@ -1331,11 +1562,11 @@ class KazhdanLusztigCharacter:
         print(f"[KL] character: START  λ̂ = {lambda_hat},  order = {order}", flush=True)
         q = var("q")
 
-        self.kl.reset_profile_stats()
-        self.kl.set_profiling(True)
+        self.kl_polynomial.reset_profile_stats()
+        self.kl_polynomial.set_profiling(True)
 
         numerator_started = time.perf_counter()
-        numerator = self.numerator_q_series(
+        numerator = self.numerator_q_series_legacy(
             lambda_hat,
             order=order,
             translations=translations,
@@ -1343,19 +1574,23 @@ class KazhdanLusztigCharacter:
             show_progress=show_progress,
             debug=debug,
         )
+        print(numerator)
         numerator_seconds = time.perf_counter() - numerator_started
 
         denominator_started = time.perf_counter()
         denominator = self.denominator_q_series(order)
+        print(denominator)
         denominator_seconds = time.perf_counter() - denominator_started
 
         ratio_started = time.perf_counter()
         print("[KL] character: computing ratio and Taylor expansion …", flush=True)
+        
+
         result = sage_simplify((numerator / denominator).taylor(q, 0, order))
         ratio_seconds = time.perf_counter() - ratio_started
 
         total_seconds = time.perf_counter() - total_started
-        stats = self.kl.profile_stats()
+        stats = self.kl_polynomial.profile_stats()
         q_calls = int(stats.get("Q_calls", 0))
         q_time = float(stats.get("Q_total_seconds", 0.0))
         invpol_calls = int(stats.get("Q_invpol_calls", 0))
@@ -1390,6 +1625,6 @@ class KazhdanLusztigCharacter:
             ),
             flush=True,
         )
-        self.kl.set_profiling(False)
+        self.kl_polynomial.set_profiling(False)
         print("[KL] character: DONE", flush=True)
         return result
