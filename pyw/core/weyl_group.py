@@ -76,7 +76,7 @@ class AffineWeylGroup:
     >>> result = W_affine.dot_action(w, weight, rho)
     """
 
-    def __init__(self, cartan_type: Union[str, tuple, list], extended: bool = False) -> None:
+    def __init__(word_list, cartan_type: Union[str, tuple, list], extended: bool = False) -> None:
         """
         Initialize the AffineWeylGroup wrapper.
 
@@ -92,11 +92,11 @@ class AffineWeylGroup:
         ValueError
             If the cartan_type is not recognized by SageMath.
         """
-        self.cartan_type = cartan_type
-        self.extended = extended
-        self._weyl_group: Any = None
-        self._simple_reflections: dict[int, Any] = {}
-        self._setup()
+        word_list.cartan_type = cartan_type
+        word_list.extended = extended
+        word_list._weyl_group: Any = None
+        word_list._simple_reflections: dict[int, Any] = {}
+        word_list._setup()
 
     def _setup(self) -> None:
         """
@@ -317,6 +317,32 @@ def _sage_element_reduced_word(w: Any) -> tuple[int, ...]:
         except Exception:
             pass
     return tuple(int(i) for i in w)
+
+
+def element_word_list(element: Any) -> list[int]:
+    if hasattr(element, "reduced_word_list"):
+        return list(element.reduced_word_list())
+    return [int(i) for i in element.reduced_word()]
+
+
+def apply_affine_element_to_weight(
+    algebra: Any, element: Any, weight: Any
+) -> Any:
+    from .affine_weight import AffineWeight
+
+    if isinstance(element, AffineWeylGroupSemidirectElement):
+        return element.action(weight)
+
+    try:
+        domain_weight = weight.to_sagemath()
+        acted_weight = element.action(domain_weight)
+        acted_vector = acted_weight.to_vector()
+        acted_grade = QQ(acted_vector[-1]) if len(acted_vector) > 0 else QQ(0)
+        return AffineWeight.from_sagemath(algebra, acted_weight, grade=acted_grade)
+    except Exception:
+        semidirect = algebra.affine_weyl_group()
+        word = tuple(element_word_list(element))
+        return semidirect.from_word(word).action(weight)
 
 
 def _sorted_weyl_elements(elements: Iterable[Any]) -> list[Any]:
@@ -887,7 +913,7 @@ class AffineWeylGroupSemidirectElement:
     def translation_vector(self) -> Any:
         return self._beta
 
-    def word(self) -> tuple[int, ...]:
+    def word_list(self) -> tuple[int, ...]:
         if self._affine_word_override is not None:
             return self._affine_word_override
         if self._abstract_word:
@@ -915,7 +941,7 @@ class AffineWeylGroupSemidirectElement:
     # 而不是数组 [i, j, ...]，其中 i, j, ... = 0, 1, ..., r
     def reduced_word(self) -> Any:
         sage_group = self._group.algebra.affine_weyl_group_sage()
-        return sage_group.from_reduced_word(list(self.word()))
+        return sage_group.from_reduced_word(list(self.word_list()))
 
     def length(self) -> int:
         return int(self.reduced_word().length())
@@ -988,8 +1014,8 @@ class AffineWeylGroupSemidirectElement:
             word2 = list(other._w.reduced_word())
             w2_coroot = self._group._W_coroot.from_reduced_word(word2)
             b_new = w2_coroot.inverse().action(self._beta) + other._beta
-            affine_left = self.word()
-            affine_right = other.word()
+            affine_left = self.word_list()
+            affine_right = other.word_list()
             return AffineWeylGroupSemidirectElement(
                 self._group,
                 w_new,

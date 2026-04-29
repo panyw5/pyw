@@ -901,7 +901,7 @@ class KazhdanLusztigPolynomials:
         for w in candidates_list:
             if semidirect is not None:
                 if hasattr(w, "reduced_word"):
-                    affine_word = w.word() if hasattr(w, "word") else self._word_tuple(w)
+                    affine_word = w.word_list() if hasattr(w, "word_list") else self._word_tuple(w)
                     element = semidirect.from_word(affine_word)
                     stabilized = element.action(target_affine)
                 else:

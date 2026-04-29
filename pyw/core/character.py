@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING, Any, Dict, Iterable, Iterator, List, Optional,
 from sage.all import IntegrableRepresentation as SageIntegrableRepresentation
 from sage.all import Integer, QQ, SR, ZZ, binomial, matrix, prod, var, vector
 
+from .weyl_group import apply_affine_element_to_weight, element_word_list
+
 if TYPE_CHECKING:
     from .affine_lie_algebra import AffineLieAlgebra
     from .affine_weight import AffineWeight
@@ -35,48 +37,6 @@ def _debug_log(enabled: bool, *args: Any) -> None:
     """Print a debug message when *enabled* is True."""
     if enabled:
         print(*args)
-
-
-def _element_word_list(element: Any) -> list[int]:
-    if hasattr(element, "reduced_word_list"):
-        return list(element.reduced_word_list())
-    return [int(i) for i in element.reduced_word()]
-
-
-def _to_extended_affine_highest_weight(algebra: "AffineLieAlgebra", highest_weight: Any) -> Any:
-    """Rebuild an affine highest weight in Sage's extended affine lattice."""
-    if not algebra.is_affine:
-        return highest_weight
-
-    extended_affine_weight_lattice = algebra.affine_weight_lattice_sage()
-    extended_affine_fundamental_weights = extended_affine_weight_lattice.fundamental_weights()
-    rebuilt_highest_weight = extended_affine_weight_lattice.zero()
-    for index, coefficient in highest_weight.monomial_coefficients().items():
-        integer_coefficient = Integer(coefficient)
-        if integer_coefficient != 0:
-            rebuilt_highest_weight += (
-                integer_coefficient * extended_affine_fundamental_weights[index]
-            )
-    return rebuilt_highest_weight
-
-
-def _apply_affine_element_to_weight(
-    algebra: "AffineLieAlgebra", element: Any, weight: "AffineWeight"
-) -> "AffineWeight":
-    from .affine_weight import AffineWeight
-
-    try:
-        domain_weight = weight.to_sagemath()
-        acted_weight = element.action(domain_weight)
-        acted_vector = acted_weight.to_vector()
-        acted_grade = QQ(acted_vector[-1]) if len(acted_vector) > 0 else QQ(0)
-        return AffineWeight.from_sagemath(algebra, acted_weight, grade=acted_grade)
-    except Exception:
-        pass
-
-    semidirect = algebra.affine_weyl_group()
-    word = tuple(_element_word_list(element))
-    return semidirect.from_word(word).action(weight)
 
 
 def _finite_coroot_gram_matrix(algebra: "AffineLieAlgebra", idxs: List[int]) -> List[List[Any]]:
@@ -154,30 +114,18 @@ def _minus_delta_n(
     return linear + QQ(level) * quadratic / QQ(2)
 
 
-def _affine_dynkin_finite_labels(
-    algebra: "AffineLieAlgebra", weight: "AffineWeight"
-) -> List[Any]:
-    sage_weight = weight.to_sagemath(extended=False)
-    affine_dynkin_entries = list(sage_weight.to_vector()[0 : algebra.rank + 1])
-    return [QQ(affine_dynkin_entries[i]) for i in range(1, algebra.rank + 1)]
-
-
 def _translations_by_n_shift_bnb_impl(
     algebra: "AffineLieAlgebra",
     weight: "AffineWeight",
     *,
     order: int,
-    max_neg_shift: Optional[Any] = None,
     return_stats: bool = False,
 ) -> Any:
     semidirect = algebra.affine_weyl_group()
     idxs = [int(i) for i in semidirect._finite_coroot_space.index_set()]
     basis = semidirect._finite_coroot_space.simple_roots()
 
-    if max_neg_shift is None:
-        max_neg_shift_value = QQ(order)
-    else:
-        max_neg_shift_value = QQ(max_neg_shift)
+    max_neg_shift_value = QQ(order)
     if max_neg_shift_value < 0:
         return {"translations": [], "stats": {}} if return_stats else []
 
@@ -185,7 +133,7 @@ def _translations_by_n_shift_bnb_impl(
     if level == 0:
         raise ValueError("Translation enumeration by n-shift requires non-zero level")
 
-    linear_coeffs = _affine_dynkin_finite_labels(algebra, weight)
+    linear_coeffs = weight.finite_dynkin_labels()
     gram = _finite_coroot_gram_matrix(algebra, idxs)
     radius = _translation_coefficient_radius(
         level=level,
@@ -320,34 +268,27 @@ def _translations_by_n_shift_bnb_impl(
     return out
 
 
-# NOTE: _translation_neg_shift 计算从 weight 出发，哪些 translations
+# NOTE: _translations_by_n_shift_impl 计算从 weight 出发，哪些 translations
 # 让 n(weight) (也就是 weight.grade) 变化量 0 <= - Δn <= 上界
-# _translation_neg_shift 只应该接收一个上界参数
-# 现在 _translation_neg_shift 接受两个上界参数 order, max_neg_shift，显然有问题
-# 在 KL 计算中，需要计算 0 <= - Δn <= order + n(Λhat + ρhat) - n(λhat)
-# 因此 上界 参数应该由 order + n(Λhat + ρhat) - n(λhat) 给出
+# 只接受一个上界参数 order，上界由调用方计算: order + n(Λhat + ρhat) - n(λhat)
 def _translations_by_n_shift_impl(
     algebra: "AffineLieAlgebra",
     weight: "AffineWeight",
     *,
     order: int,
-    max_neg_shift: Optional[Any] = None,
 ) -> List[Any]:
     semidirect = algebra.affine_weyl_group()
     idxs = [int(i) for i in semidirect._finite_coroot_space.index_set()]
     basis = semidirect._finite_coroot_space.simple_roots()
 
-    if max_neg_shift is None:
-        max_neg_shift_value = QQ(order)
-    else:
-        max_neg_shift_value = QQ(max_neg_shift)
+    max_neg_shift_value = QQ(order)
     if max_neg_shift_value < 0:
         return []
 
     if QQ(weight.level) == 0:
         raise ValueError("Translation enumeration by n-shift requires non-zero level")
 
-    linear_coeffs = _affine_dynkin_finite_labels(algebra, weight)
+    linear_coeffs = weight.finite_dynkin_labels()
     gram = _finite_coroot_gram_matrix(algebra, idxs)
     radius = _translation_coefficient_radius(
         level=QQ(weight.level),
@@ -363,7 +304,6 @@ def _translations_by_n_shift_impl(
             algebra,
             weight,
             order=order,
-            max_neg_shift=max_neg_shift_value,
             return_stats=False,
         )
 
@@ -419,22 +359,6 @@ def _build_W_affine_as_words_direct_impl(
     return candidates
 
 
-def _sage_weight_to_affine(
-    alg: "AffineLieAlgebra", sage_wt: Any, grade: Optional[Any] = None
-) -> "AffineWeight":
-    from .affine_weight import AffineWeight
-
-    inferred_grade = QQ(grade) if grade is not None else QQ(0)
-    try:
-        vector_entries = list(sage_wt.to_vector())
-        if grade is None and vector_entries:
-            inferred_grade = QQ(vector_entries[-1])
-    except Exception:
-        pass
-
-    return AffineWeight.from_sagemath(alg, sage_wt, grade=inferred_grade)
-
-
 @dataclass(frozen=True)
 class KLNumeratorTerm:
     representative: Any
@@ -472,7 +396,7 @@ class KazhdanLusztigData:
 
     def apply(self, element: Any, weight: "AffineWeight") -> "AffineWeight":
         semidirect = self.algebra.affine_weyl_group()
-        word = tuple(_element_word_list(element))
+        word = tuple(element_word_list(element))
         return semidirect.from_word(word).action(weight)
 
     def quotient_weight(self, representative: Any) -> "AffineWeight":
@@ -484,7 +408,7 @@ class KazhdanLusztigData:
             return []
         lower = self.w_to_lambda
         result = [rep for rep in self.quotient_representatives if lower.bruhat_le(rep)]
-        return sorted(result, key=lambda w: (int(w.length()), tuple(_element_word_list(w))))
+        return sorted(result, key=lambda w: (int(w.length()), tuple(element_word_list(w))))
 
 
 class IntegrableModuleCharacter:
@@ -510,8 +434,7 @@ class IntegrableModuleCharacter:
                 raise ValueError(
                     "highest_weight algebra does not match IntegrableModuleCharacter algebra"
                 )
-            sage_weight = _to_extended_affine_highest_weight(
-                self.algebra,
+            sage_weight = self.algebra.to_extended_affine(
                 highest_weight.to_sagemath(),
             )
             affine_weight = AffineWeight.from_sagemath(self.algebra, sage_weight, grade=0)
@@ -523,7 +446,7 @@ class IntegrableModuleCharacter:
                 "highest_weight algebra does not match IntegrableModuleCharacter algebra"
             )
 
-        sage_weight = _to_extended_affine_highest_weight(self.algebra, highest_weight)
+        sage_weight = self.algebra.to_extended_affine(highest_weight)
         affine_weight = AffineWeight.from_sagemath(self.algebra, sage_weight, grade=0)
         return affine_weight, sage_weight
 
@@ -610,7 +533,6 @@ class IntegrableModuleCharacter:
                 self.algebra,
                 affine_weight,
                 order=order,
-                max_neg_shift=QQ(order),
             ):
                 beta = translation.translation_vector
                 key = tuple(
@@ -640,7 +562,7 @@ class IntegrableModuleCharacter:
         by_image: Dict[Tuple[Tuple[int, Any], ...], tuple[Any, "AffineWeight"]] = {}
 
         for w in candidates:
-            acted = _apply_affine_element_to_weight(self.algebra, w, base_weight)
+            acted = apply_affine_element_to_weight(self.algebra, w, base_weight)
             key = tuple(sorted(acted.dynkin_labels().items())) + ((-1, acted.grade),)
             current = by_image.get(key)
             if current is None or int(w.length()) < int(current[0].length()):
@@ -656,7 +578,7 @@ class IntegrableModuleCharacter:
                 selected.append((wrep, nmax))
 
         return sorted(
-            selected, key=lambda item: (int(item[0].length()), tuple(_element_word_list(item[0])))
+            selected, key=lambda item: (int(item[0].length()), tuple(element_word_list(item[0])))
         )
 
     def _character_contribution(
@@ -689,7 +611,7 @@ class IntegrableModuleCharacter:
                 * prod(
                     [
                         z_vars[i]
-                        ** _apply_affine_element_to_weight(
+                        ** apply_affine_element_to_weight(
                             self.algebra,
                             representative,
                             base_weight - n * delta,
@@ -699,7 +621,7 @@ class IntegrableModuleCharacter:
                 )
                 * q_var
                 ** (
-                    -_apply_affine_element_to_weight(
+                    -apply_affine_element_to_weight(
                         self.algebra,
                         representative,
                         base_weight - n * delta,
@@ -803,13 +725,11 @@ class KazhdanLusztigCharacter:
         weight: "AffineWeight",
         *,
         order: int,
-        max_neg_shift: Optional[Any] = None,
     ) -> List[Any]:
         return _translations_by_n_shift_impl(
             self.algebra,
             weight,
             order=order,
-            max_neg_shift=max_neg_shift,
         )
 
     def _find_dominant_Lambda(
@@ -860,7 +780,7 @@ class KazhdanLusztigCharacter:
     def _apply_element_to_weight(
         algebra: "AffineLieAlgebra", element: Any, weight: "AffineWeight"
     ) -> "AffineWeight":
-        return _apply_affine_element_to_weight(algebra, element, weight)
+        return apply_affine_element_to_weight(algebra, element, weight)
 
     @classmethod
     def _collect_stabilizer_and_quotient_representatives(
@@ -908,17 +828,17 @@ class KazhdanLusztigCharacter:
         else:
             identity = algebra.affine_weyl_group_sage().one()
 
-        identity_word = tuple(_element_word_list(identity))
-        if all(tuple(_element_word_list(w)) != identity_word for w in stabilizer):
+        identity_word = tuple(element_word_list(identity))
+        if all(tuple(element_word_list(w)) != identity_word for w in stabilizer):
             stabilizer.append(identity)
 
         stabilizer_sorted = sorted(
             stabilizer,
-            key=lambda w: (int(w.length()), tuple(_element_word_list(w))),
+            key=lambda w: (int(w.length()), tuple(element_word_list(w))),
         )
         quotient_sorted = sorted(
             by_weight.values(),
-            key=lambda w: (int(w.length()), tuple(_element_word_list(w))),
+            key=lambda w: (int(w.length()), tuple(element_word_list(w))),
         )
         return stabilizer_sorted, quotient_sorted
 
@@ -949,7 +869,6 @@ class KazhdanLusztigCharacter:
             self.algebra,
             rho_hat,
             order=order,
-            max_neg_shift=order,
         )
         denominator_coroots = affine_weyl_group._translations_to_coroots(
             translations=denominator_translations,
@@ -1024,7 +943,6 @@ class KazhdanLusztigCharacter:
             translation_elements = self._translations_by_n_shift(
                 Lambda_plus_rho,
                 order=translation_order,
-                max_neg_shift=QQ(translation_order),
             )
             print(
                 f"[character_weight_list] → {len(translation_elements)} translation(s)",
@@ -1136,7 +1054,7 @@ class KazhdanLusztigCharacter:
 
             # Compute the image weight: w'·(Λ+ρ)-ρ
             acted_weight = representative.action(target_sage) - rho_sage
-            weight = _sage_weight_to_affine(self.algebra, acted_weight)
+            weight = self.algebra.from_sagemath(acted_weight)
 
             result.append({weight: coefficient})
 
@@ -1198,7 +1116,7 @@ class KazhdanLusztigCharacter:
                 variables[i]
                 ** algebra.scalar_product(
                     weight,
-                    _sage_weight_to_affine(algebra, simple_roots[i]),
+                    algebra.from_sagemath(simple_roots[i]),
                 )
                 for i in range(1, finite_rank + 1)
             ]
@@ -1210,8 +1128,7 @@ class KazhdanLusztigCharacter:
         rho_sage = rho_hat.to_sagemath(extended=True)
         denominator_weight_list = [
             {
-                _sage_weight_to_affine(
-                    self.algebra,
+                self.algebra.from_sagemath(
                     w.action(rho_sage) - rho_sage,
                 ): (-1) ** (w.length() % 2)
             }

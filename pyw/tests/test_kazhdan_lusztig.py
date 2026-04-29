@@ -301,7 +301,7 @@ class TestKazhdanLusztigPolynomials:
         kl._coxeter3 = None
 
         candidates = [
-            W.from_reduced_word(tuple(int(i) for i in element.word()))
+            W.from_reduced_word(tuple(int(i) for i in element.word_list()))
             for element in ala.affine_weyl_group().elements_as_semi_direct_product(
                 translation_bounds={1: (0, 0), 2: (0, 0)}
             )
@@ -329,7 +329,7 @@ class TestKazhdanLusztigPolynomials:
         kl._coxeter3 = None
 
         candidates = [
-            W.from_reduced_word(tuple(int(i) for i in element.word()))
+            W.from_reduced_word(tuple(int(i) for i in element.word_list()))
             for element in ala.affine_weyl_group().elements_as_semi_direct_product(
                 translation_bounds={1: (0, 0), 2: (0, 0)}
             )

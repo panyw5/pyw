@@ -1768,6 +1768,32 @@ class AffineLieAlgebra:
         """
         return self.theta_hat()
 
+    def to_extended_affine(self, weight: Any) -> Any:
+        if not self.is_affine:
+            return weight
+
+        extended_affine_weight_lattice = self.affine_weight_lattice_sage()
+        extended_affine_fundamental_weights = extended_affine_weight_lattice.fundamental_weights()
+        rebuilt = extended_affine_weight_lattice.zero()
+        for index, coefficient in weight.monomial_coefficients().items():
+            integer_coefficient = Integer(coefficient)
+            if integer_coefficient != 0:
+                rebuilt += integer_coefficient * extended_affine_fundamental_weights[index]
+        return rebuilt
+
+    def from_sagemath(self, sage_weight: Any, grade: Optional[Any] = None) -> "AffineWeight":
+        from .affine_weight import AffineWeight
+
+        inferred_grade = QQ(grade) if grade is not None else QQ(0)
+        try:
+            vector_entries = list(sage_weight.to_vector())
+            if grade is None and vector_entries:
+                inferred_grade = QQ(vector_entries[-1])
+        except Exception:
+            pass
+
+        return AffineWeight.from_sagemath(self, sage_weight, grade=inferred_grade)
+
     def __repr__(self) -> str:
         return f"AffineLieAlgebra({self._cartan_type})"
 

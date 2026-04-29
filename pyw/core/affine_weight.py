@@ -1206,6 +1206,11 @@ class AffineWeight:
             raise KeyError(f"Invalid affine Dynkin node index: {index}")
         return labels[index]
 
+    def finite_dynkin_labels(self) -> List[Any]:
+        sage_weight = self.to_sagemath(extended=False)
+        affine_dynkin_entries = list(sage_weight.to_vector()[0 : self.algebra.rank + 1])
+        return [QQ(affine_dynkin_entries[i]) for i in range(1, self.algebra.rank + 1)]
+
 
 # =============================================================================
 # Convenience Functions

@@ -34,7 +34,7 @@ def test_word_and_reduced_word_interfaces_for_simple_reflections(simple_index):
     element = W.simple_reflection(simple_index)
     sage_group = ala.affine_weyl_group_sage()
 
-    assert element.word() == (simple_index,)
+    assert element.word_list() == (simple_index,)
     assert element.reduced_word_list() == [simple_index]
     assert element.reduced_word() == sage_group.from_reduced_word([simple_index])
     assert str(element) == f"s_{simple_index}"
@@ -52,8 +52,8 @@ def test_translation_word_list_preserves_simple_coroot_sign_a4(coeff, negative):
 
     element = W.translation(coeff * beta)
 
-    assert element.word() == W.simple_translation_word_list(1, negative=negative)
-    assert element.word() != W.simple_translation_word_list(1, negative=not negative)
+    assert element.word_list() == W.simple_translation_word_list(1, negative=negative)
+    assert element.word_list() != W.simple_translation_word_list(1, negative=not negative)
 
 
 @pytest.mark.sage
@@ -69,8 +69,8 @@ def test_word_translation_sign_matches_intended_translation_a4(coeff):
     element = W.translation(coeff * beta)
     opposite = W.translation(-coeff * beta)
 
-    assert element.word() == W.simple_translation_word_list(1, negative=(coeff < 0))
-    assert element.word() != opposite.word()
+    assert element.word_list() == W.simple_translation_word_list(1, negative=(coeff < 0))
+    assert element.word_list() != opposite.word_list()
 
 
 @pytest.mark.sage
@@ -84,7 +84,7 @@ def test_reduced_word_interfaces_for_composite_element():
     beta = W._finite_coroot_space.simple_roots()[1]
     element = W.simple_reflection(1) * W.translation(beta)
     sage_group = ala.affine_weyl_group_sage()
-    expected = [int(i) for i in sage_group.from_reduced_word(list(element.word())).reduced_word()]
+    expected = [int(i) for i in sage_group.from_reduced_word(list(element.word_list())).reduced_word()]
 
     assert element.reduced_word_list() == expected
     assert element.reduced_word() == sage_group.from_reduced_word(expected)
@@ -280,7 +280,7 @@ def test_affine_root_associated_reflection_word_matches_reflection_action():
     word = W.associated_reflection_word(alpha_hat)
     reflected = W.associated_reflection(alpha_hat)
 
-    assert reflected.word() == tuple(word)
+    assert reflected.word_list() == tuple(word)
     assert reflected.reduced_word_list() == [int(i) for i in ala.affine_weyl_group_sage().from_reduced_word(list(word)).reduced_word()]
     assert reflected.action(x) == ala.affine_weyl_reflection(alpha_hat, x)
 
@@ -428,7 +428,7 @@ def test_semidirect_translation_affine_word_is_nonempty():
 
     translation = W.translation(beta)
 
-    assert tuple(translation.word())
+    assert tuple(translation.word_list())
 
 
 @pytest.mark.sage
@@ -458,5 +458,5 @@ def test_semidirect_bruhat_le_matches_sage_affine_group():
     assert x.bruhat_le(y) == bool(x.reduced_word().bruhat_le(y.reduced_word()))
 
     # 支持 tuple/list 输入路径
-    y_word = tuple(int(i) for i in y.word())
+    y_word = tuple(int(i) for i in y.word_list())
     assert x.bruhat_le(y_word) == bool(x.reduced_word().bruhat_le(y.reduced_word()))
