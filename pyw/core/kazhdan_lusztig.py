@@ -239,8 +239,8 @@ class KazhdanLusztigPolynomials:
     def _cython_Q_at_one(self, x: Any, y: Any) -> Any:
         """Compute Q(x,y) at q=1 via Cython coxeter3.
 
-        Uses the signed incidence matrix of the Bruhat interval, relying on
-        P(1)=1 for all pairs in Coxeter groups (Kazhdan-Lusztig conjecture).
+        Constructs the P-matrix evaluated at q=1 over the Bruhat interval [x,y]
+        and inverts it to obtain Q(x,y,1).
         """
         cx = self._to_cython_element(x)
         cy = self._to_cython_element(y)
@@ -252,14 +252,21 @@ class KazhdanLusztigPolynomials:
         n = len(interval)
         if n == 1:
             return 1
-        # Signed incidence matrix: S[i,j] = (-1)^(ℓ(j)-ℓ(i)) for i ≤ j
-        S = matrix(QQ, n, n)
+        # P-matrix at q=1: P_mat[i,j] = (-1)^(l(j)-l(i)) * P_{i,j}(1) for i <= j
+        P_mat = matrix(QQ, n, n)
         for i in range(n):
             li = len(interval[i])
             for j in range(i, n):
                 if interval[i].bruhat_le(interval[j]):
-                    S[i, j] = 1 if (len(interval[j]) - li) % 2 == 0 else -1
-        Q_mat = S.inverse()
+                    lj = len(interval[j])
+                    sign = 1 if (lj - li) % 2 == 0 else -1
+                    p_val = self.P(
+                        self.weyl_group.from_reduced_word(list(interval[i])),
+                        self.weyl_group.from_reduced_word(list(interval[j])),
+                        at_one=True,
+                    )
+                    P_mat[i, j] = sign * p_val
+        Q_mat = P_mat.inverse()
         xw = self._word_tuple(x)
         yw = self._word_tuple(y)
         ix = next(i for i, w in enumerate(interval) if self._word_tuple(w) == xw)
@@ -313,8 +320,8 @@ class KazhdanLusztigPolynomials:
         >>> kl.P(W.one(), W.long_element())
         1
         """
-        x = self._ensure_element(x)
-        y = self._ensure_element(y)
+        x = self._coerce_to_coxeter3(x)
+        y = self._coerce_to_coxeter3(y)
 
         # Check cache
         cache_key = (self._element_key(x), self._element_key(y))
@@ -464,8 +471,8 @@ class KazhdanLusztigPolynomials:
             except Exception:
                 pass  # fall through to existing backends
 
-        x = self._ensure_element(x)
-        y = self._ensure_element(y)
+        x = self._coerce_to_coxeter3(x)
+        y = self._coerce_to_coxeter3(y)
 
         if self._coxeter3 is not None and hasattr(self._coxeter3, "invpol"):
             try:
@@ -569,8 +576,8 @@ class KazhdanLusztigPolynomials:
                 "Install coxeter3_sage and ensure invpol method is added."
             )
 
-        x = self._ensure_element(x)
-        y = self._ensure_element(y)
+        x = self._coerce_to_coxeter3(x)
+        y = self._coerce_to_coxeter3(y)
 
         # Check cache
         cache_key = (self._element_key(x), self._element_key(y))
@@ -769,10 +776,10 @@ class KazhdanLusztigPolynomials:
             When supplied, Bruhat comparisons use the fast subword criterion
             instead of SageMath's matrix-based ``bruhat_le``.
         """
-        x_internal = self._ensure_element(x)
-        y_internal = self._ensure_element(y)
+        x_internal = self._coerce_to_coxeter3(x)
+        y_internal = self._coerce_to_coxeter3(y)
 
-        candidate_pairs = [(w, self._ensure_element(w)) for w in candidates]
+        candidate_pairs = [(w, self._coerce_to_coxeter3(w)) for w in candidates]
         candidates_list = [internal for _, internal in candidate_pairs]
         if word_cache is None:
             word_cache = self._build_word_cache([x_internal, y_internal] + candidates_list)
@@ -822,11 +829,11 @@ class KazhdanLusztigPolynomials:
             calls within one ``numerator_terms`` computation to avoid
             recomputing reduced words for every interval.
         """
-        x = self._ensure_element(x)
-        y = self._ensure_element(y)
+        x = self._coerce_to_coxeter3(x)
+        y = self._coerce_to_coxeter3(y)
 
         if word_cache is None:
-            candidates_list = [self._ensure_element(w) for w in candidates]
+            candidates_list = [self._coerce_to_coxeter3(w) for w in candidates]
             word_cache = self._build_word_cache([x, y] + candidates_list)
 
         if not self._bruhat_le_by_words(x, y, word_cache):
@@ -841,7 +848,7 @@ class KazhdanLusztigPolynomials:
             except Exception:
                 pass
 
-        candidates_list = [self._ensure_element(w) for w in candidates]
+        candidates_list = [self._coerce_to_coxeter3(w) for w in candidates]
         interval = self.affine_bounded_interval_experiment(
             x, y, candidates=candidates_list, word_cache=word_cache
         )
@@ -912,7 +919,7 @@ class KazhdanLusztigPolynomials:
                     result.append(w)
                 continue
 
-            element = self._ensure_element(w)
+            element = self._coerce_to_coxeter3(w)
             if element.action(target) - rho_hat == Lambda:
                 result.append(w)
 
@@ -969,10 +976,10 @@ class KazhdanLusztigPolynomials:
             DeprecationWarning,
             stacklevel=2,
         )
-        x_min = self._ensure_element(x_min, word_cache=word_cache)
-        y_min = self._ensure_element(y_min, word_cache=word_cache)
-        bounded_candidates = [self._ensure_element(w, word_cache=word_cache) for w in candidates]
-        stabilizer = [self._ensure_element(w, word_cache=word_cache) for w in stabilizer_candidates]
+        x_min = self._coerce_to_coxeter3(x_min, word_cache=word_cache)
+        y_min = self._coerce_to_coxeter3(y_min, word_cache=word_cache)
+        bounded_candidates = [self._coerce_to_coxeter3(w, word_cache=word_cache) for w in candidates]
+        stabilizer = [self._coerce_to_coxeter3(w, word_cache=word_cache) for w in stabilizer_candidates]
 
         if word_cache is None:
             word_cache = self._build_word_cache([x_min, y_min] + bounded_candidates + stabilizer)
@@ -1022,9 +1029,9 @@ class KazhdanLusztigPolynomials:
         word_cache: Optional[Dict[int, tuple]] = None,
     ) -> Any:
         q_tilde_started = time.perf_counter() if self._profiling_enabled else None
-        x_min = self._ensure_element(x_min, word_cache=word_cache)
-        y_min = self._ensure_element(y_min, word_cache=word_cache)
-        stabilizer = [self._ensure_element(w, word_cache=word_cache) for w in stabilizer_candidates]
+        x_min = self._coerce_to_coxeter3(x_min, word_cache=word_cache)
+        y_min = self._coerce_to_coxeter3(y_min, word_cache=word_cache)
+        stabilizer = [self._coerce_to_coxeter3(w, word_cache=word_cache) for w in stabilizer_candidates]
 
         if word_cache is None:
             word_cache = self._build_word_cache([x_min, y_min] + stabilizer)
@@ -1078,10 +1085,10 @@ class KazhdanLusztigPolynomials:
 
     def _bounded_maximal_representative(self, w_min: Any, *, stabilizer: Iterable[Any]) -> Any:
         """Find the maximal representative inside a bounded right coset."""
-        current = self._ensure_element(w_min)
+        current = self._coerce_to_coxeter3(w_min)
         current_length = self._word_length(current)
         for s in stabilizer:
-            candidate = current * self._ensure_element(s)
+            candidate = current * self._coerce_to_coxeter3(s)
             candidate_length = self._word_length(candidate)
             if candidate_length > current_length:
                 current = candidate
@@ -1100,13 +1107,13 @@ class KazhdanLusztigPolynomials:
         """Enumerate right-coset elements present in a bounded candidate set."""
         if candidate_set is None:
             candidate_set = {
-                self._element_key(self._ensure_element(w)): self._ensure_element(w)
+                self._element_key(self._coerce_to_coxeter3(w)): self._coerce_to_coxeter3(w)
                 for w in candidates
             }
         result: Dict[Tuple[int, ...], Any] = {}
-        base = self._ensure_element(w_min)
+        base = self._coerce_to_coxeter3(w_min)
         for s in stabilizer:
-            candidate = base * self._ensure_element(s)
+            candidate = base * self._coerce_to_coxeter3(s)
             key = self._element_key(candidate)
             if key in candidate_set:
                 result[key] = candidate_set[key]
@@ -1269,7 +1276,7 @@ class KazhdanLusztigPolynomials:
     # Internal Methods
     # =========================================================================
 
-    def _ensure_element(self, w: Any, word_cache: Optional[Dict[int, tuple]] = None) -> Any:
+    def _coerce_to_coxeter3(self, w: Any, word_cache: Optional[Dict[int, tuple]] = None) -> Any:
         if hasattr(w, "parent") and w.parent() == self.weyl_group:
             return w
         if isinstance(w, (list, tuple)):
