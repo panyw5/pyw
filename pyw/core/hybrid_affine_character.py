@@ -8,7 +8,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Callable, Mapping
 
-from sage.all import QQ, ZZ
+from sage.all import QQ, ZZ, WeylCharacterRing
 
 logger = logging.getLogger(__name__)
 
@@ -471,6 +471,90 @@ def classically_dominant_affine_weight(target_weight: "AffineWeight") -> "Affine
     )
 
 
+def decompose_finite_irreducibles(
+    weight_multiplicities: Mapping["AffineWeight", int],
+) -> dict["AffineWeight", int]:
+    """Decompose one finite-Weyl-invariant affine weight space into irreducibles."""
+    from .affine_weight import AffineWeight, affine_weight_key
+
+    if not weight_multiplicities:
+        return {}
+
+    weights = tuple(weight_multiplicities)
+    reference_weight = weights[0]
+    algebra = reference_weight.algebra
+    _require_untwisted_affine(algebra)
+    if any(weight.algebra != algebra for weight in weights):
+        raise ValueError("All weights must belong to the same affine algebra")
+    if any(
+        weight.level != reference_weight.level or weight.grade != reference_weight.grade
+        for weight in weights
+    ):
+        raise ValueError("A finite decomposition requires one fixed affine level and grade")
+
+    remaining = {
+        affine_weight_key(weight): int(multiplicity)
+        for weight, multiplicity in weight_multiplicities.items()
+        if multiplicity != 0
+    }
+    if any(multiplicity < 0 for multiplicity in remaining.values()):
+        raise ValueError("Weight multiplicities must be nonnegative")
+    weights_by_key = {affine_weight_key(weight): weight for weight in weights}
+    finite_type = algebra._finite_type
+    finite_root_system = algebra._finite_root_system
+    if finite_type is None or finite_root_system is None:
+        raise ValueError("The finite root-system data is not initialized")
+    finite_weight_space = finite_root_system.weight_space()
+    character_ring = WeylCharacterRing(finite_type, style="coroots")
+    finite_rho = sum(finite_weight_space.fundamental_weights().values())
+    decomposition: dict["AffineWeight", int] = {}
+
+    while remaining:
+        dominant_weights = [
+            weights_by_key[key]
+            for key in remaining
+            if weights_by_key[key].finite_part.is_dominant()
+        ]
+        if not dominant_weights:
+            raise ValueError("Weight multiplicities are not finite-Weyl invariant")
+        highest_weight = max(
+            dominant_weights,
+            key=lambda weight: algebra.scalar_product(
+                weight.finite_part + finite_rho,
+                weight.finite_part + finite_rho,
+            ),
+        )
+        highest_key = affine_weight_key(highest_weight)
+        coefficient = remaining[highest_key]
+        labels = tuple(highest_weight.finite_dynkin_labels())
+        if any(label not in ZZ or label < 0 for label in labels):
+            raise ValueError("Irreducible highest weights must be dominant integral")
+
+        decomposition[highest_weight] = coefficient
+        for finite_weight, multiplicity in character_ring(labels).weight_multiplicities().items():
+            affine_weight = AffineWeight(
+                algebra,
+                finite_weight_space(finite_weight.to_weight_space()),
+                reference_weight.level,
+                reference_weight.grade,
+            )
+            key = affine_weight_key(affine_weight)
+            if key not in remaining:
+                raise ValueError(
+                    "Weight multiplicities do not contain the full finite irreducible "
+                    f"character below {highest_weight}"
+                )
+            remaining[key] -= coefficient * int(multiplicity)
+            if remaining[key] < 0:
+                raise ArithmeticError(
+                    "Finite irreducible subtraction produced a negative multiplicity "
+                    f"at {affine_weight}"
+                )
+            if remaining[key] == 0:
+                del remaining[key]
+    return decomposition
+
+
 def compute_bounded_freudenthal_multiplicities(
     tree: BoundedWeightTree,
     *,
@@ -720,3 +804,17 @@ class KazhdanLusztigFreudenthalCharacter:
                 for weight in tree.weights_at_depth(depth)
             }
         return result
+
+    def finite_irreducible_decomposition(
+        self,
+        lambda_hat: "AffineWeight",
+        *,
+        order: int,
+    ) -> dict[int, dict["AffineWeight", int]]:
+        """Return the finite-dimensional irreducible decomposition at each depth."""
+        return {
+            depth: decompose_finite_irreducibles(weight_multiplicities)
+            for depth, weight_multiplicities in self.character(
+                lambda_hat, order=order
+            ).items()
+        }

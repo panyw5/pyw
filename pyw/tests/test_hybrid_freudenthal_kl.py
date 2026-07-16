@@ -136,12 +136,57 @@ def test_hybrid_character_assembles_explicit_weight_coefficients(monkeypatch):
 
 
 @pytest.mark.sage
+def test_decompose_finite_irreducibles_recovers_a1_summands():
+    from sage.all import WeylCharacterRing
+
+    from pyw.core.affine_lie_algebra import AffineLieAlgebra
+    from pyw.core.affine_weight import AffineWeight
+    from pyw.core.hybrid_affine_character import (
+        KazhdanLusztigFreudenthalCharacter,
+        decompose_finite_irreducibles,
+    )
+
+    algebra = AffineLieAlgebra(["A", 1, 1])
+    finite_weight_space = algebra._finite_root_system.weight_space()
+    ring = WeylCharacterRing(["A", 1], style="coroots")
+    highest_weights = ((2,), (0,))
+    multiplicities = (1, 2)
+    weight_multiplicities = {}
+    for labels, coefficient in zip(highest_weights, multiplicities, strict=True):
+        for finite_weight, multiplicity in ring(labels).weight_multiplicities().items():
+            weight = AffineWeight(
+                algebra,
+                finite_weight_space(finite_weight.to_weight_space()),
+                level=-1,
+                grade=3,
+            )
+            weight_multiplicities[weight] = weight_multiplicities.get(weight, 0) + coefficient * multiplicity
+
+    decomposition = decompose_finite_irreducibles(weight_multiplicities)
+
+    assert {
+        tuple(weight.finite_dynkin_labels()): multiplicity
+        for weight, multiplicity in decomposition.items()
+    } == {(2,): 1, (0,): 2}
+    assert all(weight.level == -1 and weight.grade == 3 for weight in decomposition)
+
+    engine = KazhdanLusztigFreudenthalCharacter(algebra)
+    engine.character = lambda _highest_weight, *, order: {order: weight_multiplicities}  # type: ignore[method-assign]
+    assert engine.finite_irreducible_decomposition(
+        AffineWeight.zero(algebra), order=3
+    ) == {3: decomposition}
+
+
+@pytest.mark.sage
 @pytest.mark.slow
 def test_d4_hybrid_character_uses_lazy_kl_and_matches_order_four_dimensions(tmp_path):
     from pyw.core.affine_lie_algebra import AffineLieAlgebra
     from pyw.core.affine_weight import AffineWeight
     from pyw.core.character import KazhdanLusztigCharacter
-    from pyw.core.hybrid_affine_character import KazhdanLusztigFreudenthalCharacter
+    from pyw.core.hybrid_affine_character import (
+        KazhdanLusztigFreudenthalCharacter,
+        decompose_finite_irreducibles,
+    )
     from pyw.core.kazhdan_lusztig import KazhdanLusztigPolynomials
 
     algebra = AffineLieAlgebra(["D", 4, 1])
@@ -158,9 +203,42 @@ def test_d4_hybrid_character_uses_lazy_kl_and_matches_order_four_dimensions(tmp_
 
     character = engine.character(highest_weight, order=4)
     dimensions = [sum(character[depth].values()) for depth in range(5)]
+    decomposition = {
+        depth: {
+            tuple(weight.finite_dynkin_labels()): multiplicity
+            for weight, multiplicity in decompose_finite_irreducibles(
+                character[depth]
+            ).items()
+        }
+        for depth in range(5)
+    }
     stats = engine.profile_stats()
 
     assert dimensions == [1, 28, 329, 2632, 16380]
+    assert decomposition == {
+        0: {(0, 0, 0, 0): 1},
+        1: {(0, 1, 0, 0): 1},
+        2: {(0, 2, 0, 0): 1, (0, 1, 0, 0): 1, (0, 0, 0, 0): 1},
+        3: {
+            (0, 3, 0, 0): 1,
+            (0, 2, 0, 0): 1,
+            (1, 0, 1, 1): 1,
+            (0, 1, 0, 0): 2,
+            (0, 0, 0, 0): 1,
+        },
+        4: {
+            (0, 4, 0, 0): 1,
+            (0, 3, 0, 0): 1,
+            (1, 1, 1, 1): 1,
+            (0, 2, 0, 0): 3,
+            (1, 0, 1, 1): 1,
+            (2, 0, 0, 0): 1,
+            (0, 0, 2, 0): 1,
+            (0, 0, 0, 2): 1,
+            (0, 1, 0, 0): 3,
+            (0, 0, 0, 0): 2,
+        },
+    }
     assert stats["degenerate_targets"] == 7
     assert stats["candidate_query_hits"] == 238
     assert stats["q_tilde_requests"] == 238
