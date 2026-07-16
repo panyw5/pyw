@@ -1,0 +1,6 @@
+{"file": ".opencode/commands/trellis/finish-work.md", "reason": "Finish work checklist"}
+{"file": ".opencode/commands/trellis/check.md", "reason": "Code quality check spec"}
+{"file": ".trellis/spec/core-tests/interface-and-coverage.md", "reason": "Cover public and internal hybrid character interfaces"}
+{"file": ".trellis/spec/core-tests/quality-and-regression.md", "reason": "Validate existing KL character behavior remains unchanged"}
+{"file": ".trellis/spec/math-tests/special-cases.md", "reason": "Verify D4 level -2 vacuum benchmark coefficients and decomposition"}
+{"file": ".trellis/spec/math-tests/literature-crosscheck.md", "reason": "Cross-check KL coefficient extraction and Freudenthal identities"}

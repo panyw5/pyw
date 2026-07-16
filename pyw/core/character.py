@@ -1,13 +1,17 @@
 from __future__ import annotations
 
-from collections import deque
-from dataclasses import dataclass
-from itertools import product
+import json
+import pickle
+import sqlite3
 import time
-from typing import TYPE_CHECKING, Any, Dict, Iterable, Iterator, List, Optional, Tuple
+from dataclasses import dataclass, field
+from itertools import product
+from pathlib import Path
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
+from sage.all import QQ, SR, ZZ, matrix, prod, var, vector
 from sage.all import IntegrableRepresentation as SageIntegrableRepresentation
-from sage.all import Integer, QQ, SR, ZZ, binomial, matrix, prod, var, vector
 
 from .weyl_group import apply_affine_element_to_weight, element_word_list
 
@@ -37,6 +41,170 @@ def _debug_log(enabled: bool, *args: Any) -> None:
     """Print a debug message when *enabled* is True."""
     if enabled:
         print(*args)
+
+
+@dataclass(frozen=True)
+class BoundedKLOrbit:
+    """Order-bounded KL orbit data prepared without evaluating Q-tilde."""
+
+    lambda_hat: "AffineWeight"
+    Lambda_hat: "AffineWeight"
+    w_to_lambda: Any
+    stabilizer: tuple[Any, ...]
+    representatives: tuple[Any, ...]
+    weyl_to_weight: Mapping[tuple[int, ...], "AffineWeight"]
+    weight_to_weyl: Mapping[Any, Any]
+    by_grade: Mapping[Any, tuple[Any, ...]]
+    weyl_to_representative: Mapping[tuple[int, ...], Any] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
+    weyl_to_relative_root_coordinates: Mapping[tuple[int, ...], tuple[Any, ...]] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
+
+    def candidates_above(self, target_weight: "AffineWeight") -> tuple[Any, ...]:
+        """Return bounded KL orbit entries above a target in the affine root cone."""
+        from .hybrid_affine_character import bounded_kl_candidates_above
+
+        return bounded_kl_candidates_above(self, target_weight)
+
+
+class _BoundedKLOrbitCache:
+    """SQLite storage for reconstructible strict bounded-orbit snapshots."""
+
+    _SCHEMA_VERSION = 1
+
+    def __init__(self, cache_dir: Path) -> None:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        self._connection = sqlite3.connect(
+            str(cache_dir / "bounded_kl_orbits.db"), isolation_level=None
+        )
+        self._connection.execute("PRAGMA journal_mode=WAL")
+        self._connection.execute("PRAGMA synchronous=NORMAL")
+        self._connection.execute(
+            "CREATE TABLE IF NOT EXISTS bounded_kl_orbits ("
+            "cache_key TEXT PRIMARY KEY, payload BLOB NOT NULL)"
+        )
+
+    def load(self, cache_key: str) -> Any | None:
+        row = self._connection.execute(
+            "SELECT payload FROM bounded_kl_orbits WHERE cache_key = ?", (cache_key,)
+        ).fetchone()
+        return None if row is None else pickle.loads(row[0])
+
+    def save(self, cache_key: str, payload: Any) -> None:
+        self._connection.execute(
+            "INSERT OR REPLACE INTO bounded_kl_orbits (cache_key, payload) VALUES (?, ?)",
+            (cache_key, pickle.dumps(payload)),
+        )
+
+
+def _weight_cache_data(weight: "AffineWeight") -> dict[str, Any]:
+    return {
+        "labels": {str(index): str(value) for index, value in weight.dynkin_labels().items()},
+        "grade": str(QQ(weight.grade)),
+    }
+
+
+def _weight_from_cache_data(algebra: "AffineLieAlgebra", data: Mapping[str, Any]) -> "AffineWeight":
+    from .affine_weight import from_dynkin_labels
+
+    return from_dynkin_labels(
+        algebra,
+        {int(index): QQ(value) for index, value in data["labels"].items()},
+        grade=QQ(data["grade"]),
+    )
+
+
+def _orbit_cache_key(
+    algebra: "AffineLieAlgebra",
+    lambda_hat: "AffineWeight",
+    order: int,
+    lambda_hat_dominant: "AffineWeight | None",
+    w_to_lambda: Any | None,
+) -> str:
+    explicit_dominant_data = None
+    if lambda_hat_dominant is not None and w_to_lambda is not None:
+        explicit_dominant_data = {
+            "Lambda_hat": _weight_cache_data(lambda_hat_dominant),
+            "w_to_lambda": list(element_word_list(w_to_lambda)),
+        }
+    return json.dumps(
+        {
+            "version": _BoundedKLOrbitCache._SCHEMA_VERSION,
+            "cartan_type": list(algebra._cartan_type_obj),
+            "lambda_hat": _weight_cache_data(lambda_hat),
+            "order": int(order),
+            "explicit_dominant_data": explicit_dominant_data,
+        },
+        sort_keys=True,
+    )
+
+
+def _orbit_cache_payload(orbit: BoundedKLOrbit) -> dict[str, Any]:
+    return {
+        "lambda_hat": _weight_cache_data(orbit.lambda_hat),
+        "Lambda_hat": _weight_cache_data(orbit.Lambda_hat),
+        "w_to_lambda": list(element_word_list(orbit.w_to_lambda)),
+        "stabilizer": [list(element_word_list(element)) for element in orbit.stabilizer],
+        "representatives": [list(element_word_list(element)) for element in orbit.representatives],
+        "weights": {
+            json.dumps(list(word)): _weight_cache_data(weight)
+            for word, weight in orbit.weyl_to_weight.items()
+        },
+        "relative_root_coordinates": {
+            json.dumps(list(word)): [str(value) for value in coordinates]
+            for word, coordinates in orbit.weyl_to_relative_root_coordinates.items()
+        },
+    }
+
+
+def _orbit_from_cache_payload(
+    algebra: "AffineLieAlgebra", payload: Mapping[str, Any]
+) -> BoundedKLOrbit:
+    from .affine_weight import affine_weight_key
+
+    affine_weyl_group = algebra.affine_weyl_group_sage()
+    representatives = tuple(
+        affine_weyl_group.from_reduced_word(word) for word in payload["representatives"]
+    )
+    stabilizer = tuple(
+        affine_weyl_group.from_reduced_word(word) for word in payload["stabilizer"]
+    )
+    weyl_to_representative = {
+        tuple(element_word_list(representative)): representative
+        for representative in representatives
+    }
+    weyl_to_weight = {
+        tuple(json.loads(word)): _weight_from_cache_data(algebra, weight_data)
+        for word, weight_data in payload["weights"].items()
+    }
+    weight_to_weyl = {
+        affine_weight_key(weight): weyl_to_representative[word]
+        for word, weight in weyl_to_weight.items()
+    }
+    by_grade: dict[Any, list[Any]] = {}
+    for weight in weyl_to_weight.values():
+        by_grade.setdefault(QQ(weight.grade), []).append(affine_weight_key(weight))
+    return BoundedKLOrbit(
+        lambda_hat=_weight_from_cache_data(algebra, payload["lambda_hat"]),
+        Lambda_hat=_weight_from_cache_data(algebra, payload["Lambda_hat"]),
+        w_to_lambda=affine_weyl_group.from_reduced_word(payload["w_to_lambda"]),
+        stabilizer=stabilizer,
+        representatives=representatives,
+        weyl_to_weight=MappingProxyType(weyl_to_weight),
+        weight_to_weyl=MappingProxyType(weight_to_weyl),
+        by_grade=MappingProxyType(
+            {grade: tuple(weight_keys) for grade, weight_keys in by_grade.items()}
+        ),
+        weyl_to_representative=MappingProxyType(weyl_to_representative),
+        weyl_to_relative_root_coordinates=MappingProxyType(
+            {
+                tuple(json.loads(word)): tuple(QQ(value) for value in coordinates)
+                for word, coordinates in payload["relative_root_coordinates"].items()
+            }
+        ),
+    )
 
 
 def _finite_coroot_gram_matrix(algebra: "AffineLieAlgebra", idxs: List[int]) -> List[List[Any]]:
@@ -741,12 +909,12 @@ class KazhdanLusztigCharacter:
         rho_hat = self.algebra.affine_rho()
         weyl_group = self.kl_polynomial.weyl_group
 
-        def legacy_affine_prefix_coefficients(weight: "AffineWeight") -> list[Any]:
-            sage_weight = weight.to_sagemath(extended=False)
-            return list(sage_weight.to_vector()[0 : self.algebra.rank])
+        def affine_dynkin_coefficients(weight: "AffineWeight") -> list[Any]:
+            labels = weight.dynkin_labels()
+            return [labels[index] for index in self.algebra._root_lattice.index_set()]
 
-        finite_coefficients = legacy_affine_prefix_coefficients(lambda_hat)
-        if all(coeff > 0 for coeff in finite_coefficients):
+        dynkin_coefficients = affine_dynkin_coefficients(lambda_hat)
+        if all(coeff > 0 for coeff in dynkin_coefficients):
             identity = weyl_group.one()
             return lambda_hat, identity
 
@@ -767,7 +935,7 @@ class KazhdanLusztigCharacter:
                     )
                     - rho_hat
                 )
-                reduced_coefficients = legacy_affine_prefix_coefficients(acted_weight)
+                reduced_coefficients = affine_dynkin_coefficients(acted_weight)
                 if all(coeff >= -1 for coeff in reduced_coefficients):
                     return acted_weight, w_to_Lambda
                 if checked >= max_steps:
@@ -903,13 +1071,85 @@ class KazhdanLusztigCharacter:
         Returns a list of ``{weight: coefficient}`` dicts,
         matching CharacterNum's output format exactly.
         """
-        from .affine_weight import AffineWeight
+        orbit = self.prepare_bounded_kl_orbit(
+            lambda_hat,
+            order=order,
+            Lambda_hat=Lambda_hat,
+            w_to_lambda=w_to_lambda,
+            translations=translations,
+            show_progress=show_progress,
+            debug=debug,
+        )
 
+        tqdm_bar = _get_progress_bar(enabled=show_progress)
+        logger = lambda *args: _debug_log(debug, *args)
+
+        # ── Step 8: Compute Q̃ coefficients ──
+        # Mirrors CharacterNum lines 1047-1068
+        print("[character_weight_list] computing Q̃ coefficients …", flush=True)
+        result: list[Any] = []
+
+        for representative in tqdm_bar(
+            orbit.representatives,
+            desc="Q̃ computation",
+            leave=True,
+        ):
+            coefficient = self.kl_polynomial.Q_tilde(
+                orbit.w_to_lambda,
+                representative,
+                stabilizer_candidates=orbit.stabilizer,
+            )
+            logger(
+                f"[character_weight_list]   w = {representative}  "
+                f"(len={representative.length()})  Q̃ = {coefficient}"
+            )
+            if coefficient == 0:
+                continue
+
+            representative_key = tuple(element_word_list(representative))
+            result.append({orbit.weyl_to_weight[representative_key]: coefficient})
+
+        print(
+            f"[character_weight_list] → {len(result)} non-zero term(s)",
+            flush=True,
+        )
+        return result
+
+    def prepare_bounded_kl_orbit(
+        self,
+        lambda_hat: "AffineWeight",
+        *,
+        order: int,
+        Lambda_hat: Optional["AffineWeight"] = None,
+        w_to_lambda: Optional[Any] = None,
+        translations: Optional[Iterable[Any]] = None,
+        orbit_cache_dir: Path | None = None,
+        show_progress: bool = False,
+        debug: bool = False,
+    ) -> BoundedKLOrbit:
+        """Prepare the strict order-bounded KL orbit without evaluating Q-tilde."""
+        if orbit_cache_dir is not None and translations is not None:
+            raise ValueError("Orbit caching is unavailable with caller-provided translations")
+        orbit_cache = None
+        cache_key = None
+        if orbit_cache_dir is not None:
+            cache_key = _orbit_cache_key(
+                self.algebra, lambda_hat, order, Lambda_hat, w_to_lambda
+            )
+            orbit_cache = _BoundedKLOrbitCache(orbit_cache_dir)
+            try:
+                payload = orbit_cache.load(cache_key)
+                if payload is not None:
+                    return _orbit_from_cache_payload(self.algebra, payload)
+            except Exception:
+                pass
         tqdm_bar = _get_progress_bar(enabled=show_progress)
         logger = lambda *args: _debug_log(debug, *args)
 
         # ── Step 1: Determine Λ and w_T^{-1}λ ──
         # Mirrors CharacterNum lines 960-969
+        if (Lambda_hat is None) != (w_to_lambda is None):
+            raise ValueError("Lambda_hat and w_to_lambda must be provided together")
         if Lambda_hat is not None and w_to_lambda is not None:
             pass
         else:
@@ -919,9 +1159,7 @@ class KazhdanLusztigCharacter:
         rho_hat = self.algebra.affine_rho()
         Lambda_plus_rho = Lambda_hat + rho_hat
 
-        logger(
-            f"[character_weight_list] λ̂ = {lambda_hat},  Λ̂ = {Lambda_hat},  order = {order}"
-        )
+        logger(f"[character_weight_list] λ̂ = {lambda_hat},  Λ̂ = {Lambda_hat},  order = {order}")
         print(
             f"[character_weight_list] Computing KL numerator: "
             f"λ̂ = {lambda_hat},  Λ̂ = {Lambda_hat},  order = {order}",
@@ -973,10 +1211,12 @@ class KazhdanLusztigCharacter:
         # ── Step 4: Compute stabilizer W_{Λ,0} ──
         # Mirrors CharacterNum lines 993-994
         print("[character_weight_list] computing stabilizer WΛ₀ …", flush=True)
-        stabilizer, quotient_representatives = self._collect_stabilizer_and_quotient_representatives(
-            self.algebra,
-            Lambda_hat,
-            candidates=W_affine_as_words,
+        stabilizer, quotient_representatives = (
+            self._collect_stabilizer_and_quotient_representatives(
+                self.algebra,
+                Lambda_hat,
+                candidates=W_affine_as_words,
+            )
         )
         print(
             f"[character_weight_list] → {len(stabilizer)} stabilizer(s), "
@@ -1034,35 +1274,59 @@ class KazhdanLusztigCharacter:
             flush=True,
         )
 
-        # ── Step 8: Compute Q̃ coefficients ──
-        # Mirrors CharacterNum lines 1047-1068
-        print("[character_weight_list] computing Q̃ coefficients …", flush=True)
-        result: list[Any] = []
+        from .affine_weight import affine_weight_key
+        from .hybrid_affine_character import affine_simple_root_coordinates
 
-        for representative in tqdm_bar(weyl_to_be_summed, desc="Q̃ computation", leave=True):
-            coefficient = self.kl_polynomial.Q_tilde(
-                w_to_lambda,
-                representative,
-                stabilizer_candidates=stabilizer,
+        weyl_to_weight = {
+            tuple(element_word_list(representative)): self.algebra.from_sagemath(
+                representative.action(target_sage) - rho_sage
             )
-            logger(
-                f"[character_weight_list]   w = {representative}  "
-                f"(len={representative.length()})  Q̃ = {coefficient}"
+            for representative in weyl_to_be_summed
+        }
+        weight_to_weyl = {
+            affine_weight_key(weight): representative
+            for representative in weyl_to_be_summed
+            for weight in (weyl_to_weight[tuple(element_word_list(representative))],)
+        }
+        weight_keys_by_grade: Dict[Any, List[Any]] = {}
+        for weight in weyl_to_weight.values():
+            weight_key = affine_weight_key(weight)
+            weight_keys_by_grade.setdefault(QQ(weight.grade), []).append(weight_key)
+        weyl_to_relative_root_coordinates = {
+            weyl_key: affine_simple_root_coordinates(
+                self.algebra,
+                weight - lambda_hat,
             )
-            if coefficient == 0:
-                continue
-
-            # Compute the image weight: w'·(Λ+ρ)-ρ
-            acted_weight = representative.action(target_sage) - rho_sage
-            weight = self.algebra.from_sagemath(acted_weight)
-
-            result.append({weight: coefficient})
-
-        print(
-            f"[character_weight_list] → {len(result)} non-zero term(s)",
-            flush=True,
+            for weyl_key, weight in weyl_to_weight.items()
+        }
+        logger(
+            f"[prepare_bounded_kl_orbit] prepared {len(weyl_to_be_summed)} "
+            "representative(s) without Q̃ evaluation"
         )
-        return result
+        orbit = BoundedKLOrbit(
+            lambda_hat=lambda_hat,
+            Lambda_hat=Lambda_hat,
+            w_to_lambda=w_to_lambda,
+            stabilizer=tuple(stabilizer),
+            representatives=tuple(weyl_to_be_summed),
+            weyl_to_weight=MappingProxyType(weyl_to_weight),
+            weight_to_weyl=MappingProxyType(weight_to_weyl),
+            by_grade=MappingProxyType(
+                {grade: tuple(weight_keys) for grade, weight_keys in weight_keys_by_grade.items()}
+            ),
+            weyl_to_representative=MappingProxyType(
+                {
+                    tuple(element_word_list(representative)): representative
+                    for representative in weyl_to_be_summed
+                }
+            ),
+            weyl_to_relative_root_coordinates=MappingProxyType(
+                weyl_to_relative_root_coordinates
+            ),
+        )
+        if orbit_cache is not None and cache_key is not None:
+            orbit_cache.save(cache_key, _orbit_cache_payload(orbit))
+        return orbit
 
     def numerator_q_series(
         self,
@@ -1091,8 +1355,7 @@ class KazhdanLusztigCharacter:
         # DON'T FORGET TO USE .subs({q:1}) for the coefficients
         numerator = sum(
             [
-                SR(coefficient).subs(
-                    {q: 1}) * self._character_contribution_from_weight(weight)
+                SR(coefficient).subs({q: 1}) * self._character_contribution_from_weight(weight)
                 for entry in legacy_terms
                 for weight, coefficient in entry.items()
             ]
@@ -1110,7 +1373,6 @@ class KazhdanLusztigCharacter:
         simple_roots = weight_lattice.simple_roots()
         variables = [var(f"b{i}") for i in range(0, finite_rank + 1)]
         q = var("q")
-        sage_weight = weight.to_sagemath(extended=True)
         return prod(
             [
                 variables[i]
@@ -1189,7 +1451,6 @@ class KazhdanLusztigCharacter:
 
         ratio_started = time.perf_counter()
         print("[KL] character: computing ratio and Taylor expansion …", flush=True)
-        
 
         result = sage_simplify((numerator / denominator).taylor(q, 0, order))
         ratio_seconds = time.perf_counter() - ratio_started
