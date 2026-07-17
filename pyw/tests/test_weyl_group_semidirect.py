@@ -360,7 +360,7 @@ def test_affine_semidirect_finite_part_returns_native_sage_element():
 
     finite_part = W.simple_reflection(1).finite_part
 
-    assert finite_part.parent() is W._finite_weyl_group
+    assert finite_part.parent() is W._finite_weyl_group_prefix
     assert finite_part.reduced_word() == [1]
 
 

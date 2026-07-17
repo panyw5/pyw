@@ -194,7 +194,8 @@ class AffineLieAlgebra:
         if not hasattr(self, "_finite_lie_algebra_cache"):
             self._finite_lie_algebra_cache = None
         if self._finite_lie_algebra_cache is None:
-            self._finite_lie_algebra_cache = AffineLieAlgebra(list(self._finite_type))
+            self._finite_lie_algebra_cache = AffineLieAlgebra(list(
+                self._finite_type))
         return self._finite_lie_algebra_cache
 
     @property
@@ -425,9 +426,19 @@ class AffineLieAlgebra:
         else:
             rs = self._root_system
 
-        # Get Cartan matrix and its inverse
+        # Get the fundamental-weight Gram matrix. For non-simply-laced types,
+        # C^{-1} alone is not symmetric and omits the root-length symmetrizer.
         C = matrix(QQ, rs.cartan_matrix())
         C_inv = C.inverse()
+        simple_roots = rs.root_lattice().simple_roots()
+        root_length_diagonal = matrix.diagonal(
+            [
+                QQ(simple_roots[index].to_ambient().dot_product(simple_roots[index].to_ambient()))
+                / 2
+                for index in rs.index_set()
+            ]
+        )
+        weight_gram = C_inv.transpose() * root_length_diagonal
 
         # Get Dynkin labels (coefficients of fundamental weights)
         # For a weight λ = Σ λ_i Λ_i, we have (λ, μ) = Σ_{i,j} λ_i μ_j (C^{-1})_{ij}
@@ -469,11 +480,11 @@ class AffineLieAlgebra:
             if idx in index_map:
                 lambda2_labels[index_map[idx]] = coeff
 
-        # Compute (λ, μ) = Σ_{i,j} λ_i μ_j (C^{-1})_{ij}
+        # Compute the symmetric invariant form in the fundamental-weight basis.
         result = 0
         for i in range(n):
             for j in range(n):
-                result += lambda1_labels[i] * lambda2_labels[j] * C_inv[i, j]
+                result += lambda1_labels[i] * lambda2_labels[j] * weight_gram[i, j]
 
         return result
 
@@ -1347,6 +1358,15 @@ class AffineLieAlgebra:
         if self._cartan_matrix is None:
             self._cartan_matrix = self._cartan_type_obj.cartan_matrix()
         return self._cartan_matrix
+    
+    
+    # NOTE: 能够自动将如下对象转成标准的 AffineWeight对象：
+    # <class 'sage.combinat.root_system.root_space.RootSpace_with_category.element_class'>
+    # <class 'sage.combinat.root_system.weight_space.WeightSpace_with_category.element_class'>
+    
+    def from_sagemath(self, weight):
+        
+        return
 
     # ==========================================================================
     # Nilpotent Orbits
@@ -1514,7 +1534,7 @@ class AffineLieAlgebra:
         for root_idx, root_coeff in root_coeffs.items():
             i_pos = indices.index(int(root_idx))
             for j_pos, weight_idx in enumerate(indices):
-                coeff = root_coeff * cartan[i_pos, j_pos]
+                coeff = root_coeff * cartan[j_pos, i_pos]
                 if coeff:
                     result += coeff * fundamental_weights[weight_idx]
         return result
@@ -1539,7 +1559,10 @@ class AffineLieAlgebra:
 
         result = root_space.zero()
         for i_pos, root_idx in enumerate(indices):
-            coeff = sum(weight_vector[j_pos] * cartan_inv[j_pos, i_pos] for j_pos in range(len(indices)))
+            coeff = sum(
+                cartan_inv[i_pos, j_pos] * weight_vector[j_pos]
+                for j_pos in range(len(indices))
+            )
             if coeff:
                 result += coeff * simple_roots[root_idx]
         return result
@@ -1787,7 +1810,15 @@ class AffineLieAlgebra:
         inferred_grade = QQ(grade) if grade is not None else QQ(0)
         try:
             vector_entries = list(sage_weight.to_vector())
-            if grade is None and vector_entries:
+            if getattr(self, "_debug_affine_weight", False):
+                print(
+                    "[AffineLieAlgebra.from_sagemath]",
+                    f"parent={sage_weight.parent()}",
+                    f"vector={vector_entries}",
+                    f"explicit_grade={grade}",
+                    flush=True,
+                )
+            if grade is None and len(vector_entries) == self.rank + 2:
                 inferred_grade = QQ(vector_entries[-1])
         except Exception:
             pass

@@ -101,7 +101,7 @@ def sl2_boundary_nonvacuum_j2_leading_term(tau, z):
 
 @pytest.mark.sage
 @pytest.mark.parametrize("tau", [I, 1.3 * I])
-def test_sl2_boundary_vacuum_golden_from_markdown(tau):
+def test_sl2_boundary_vacuum_character(tau):
     from pyw.utils.theta_functions import sl2_boundary_vacuum_character
 
     z = 0.21 + 0.13 * I
@@ -113,7 +113,7 @@ def test_sl2_boundary_vacuum_golden_from_markdown(tau):
 
 
 @pytest.mark.sage
-def test_sl3_boundary_vacuum_golden_from_markdown():
+def test_sl3_boundary_vacuum_character():
     from pyw.utils.theta_functions import sl3_boundary_vacuum_character
 
     tau = 1.8 * I
@@ -129,7 +129,7 @@ def test_sl3_boundary_vacuum_golden_from_markdown():
 
 @pytest.mark.sage
 @pytest.mark.parametrize("tau", [1.6 * I, 1.8 * I])
-def test_sl2_boundary_nonvacuum_j1_golden_from_markdown(tau):
+def test_sl2_boundary_character_j1(tau):
     from pyw.utils.theta_functions import sl2_boundary_character
 
     # Use purely imaginary z away from b^2 = 1 singularity.
@@ -148,7 +148,7 @@ def test_sl2_boundary_nonvacuum_j1_golden_from_markdown(tau):
 
 @pytest.mark.sage
 @pytest.mark.parametrize("tau", [1.6 * I, 1.8 * I])
-def test_sl2_boundary_nonvacuum_j2_golden_from_markdown(tau):
+def test_sl2_boundary_character_j2(tau):
     from pyw.utils.theta_functions import sl2_boundary_character
 
     # Use purely imaginary z away from b^2 = 1 singularity.

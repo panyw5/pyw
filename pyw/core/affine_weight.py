@@ -38,12 +38,26 @@ References
 """
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Union, Optional, Dict, Any, Tuple
+from typing import TYPE_CHECKING, Union, Optional, Dict, Any, List, Tuple, TypeAlias
 from fractions import Fraction
 from sage.all import RootSystem, QQ, ZZ, Integer, vector
 
 if TYPE_CHECKING:
     from .affine_lie_algebra import AffineLieAlgebra
+
+
+AffineWeightKey: TypeAlias = tuple[tuple[Any, ...], Any, Any]
+
+
+def affine_weight_key(weight: "AffineWeight") -> AffineWeightKey:
+    """Return an exact canonical key in the finite fundamental-weight basis."""
+    finite_indices = weight.algebra._finite_root_system.weight_space().index_set()
+    finite_coefficients = weight.finite_part.monomial_coefficients()
+    return (
+        tuple(QQ(finite_coefficients.get(index, 0)) for index in finite_indices),
+        QQ(weight.level),
+        QQ(weight.grade),
+    )
 
 
 # =============================================================================
@@ -429,7 +443,9 @@ class AffineWeight:
 
     def scalar_product(self, other: "AffineWeight") -> Any:
         """
-        Compute the affine scalar product (̂λ, ̂μ).
+        Compute the affine scalar product (̂λ, ̂μ)
+
+        if other is an AffineWeight, or the finite scalar product (λ, μ) if other is a finite weight.
 
         Following Di Francesco Eq. (14.23):
             (̂λ, ̂μ) = (λ, μ) + k_λ n_μ + k_μ n_λ
@@ -461,7 +477,7 @@ class AffineWeight:
         - Reduces to finite scalar product when k = n = 0
         """
         if not isinstance(other, AffineWeight):
-            raise TypeError("Expected AffineWeight")
+            return self.algebra.scalar_product(self.finite_part, other)
 
         # Compute finite part scalar product
         finite_scalar = self.algebra.scalar_product(self.finite_part, other.finite_part)
@@ -488,6 +504,47 @@ class AffineWeight:
         >>> w.norm_squared()  # |Λ₁|²
         """
         return self.scalar_product(self)
+
+    # NOTE: x should be a sage.algebras.lie_algebras.classical_lie_algebra.LieAlgebraChevalleyBasis_with_category.element_class element
+    # x = x1 h1 + x2 h2 + ... should be treated as
+    # xcheck = x1 αcheck1 + x2 αcheck2 + ...
+    # should return (self, xcheck)
+    def action(self, x):
+        """
+        Compute the pairing (̂λ, xcheck) where x is a finite Lie algebra element.
+
+        Given x = Σ x_i h_i in the Chevalley basis, treat each h_i as the
+        simple coroot α_i^∨ to form xcheck = Σ x_i α_i^∨, and return the
+        scalar evaluation (self, xcheck) = Σ x_i λ_i where λ_i are the
+        affine Dynkin labels of self.
+
+        Parameters
+        ----------
+        x : LieAlgebraChevalleyBasis element
+            An element of a finite-dimensional simple Lie algebra in
+            Chevalley basis.  Only the Cartan (h_i) components contribute;
+            e_i / f_i components are silently ignored.
+
+        Returns
+        -------
+        Rational
+            The pairing (̂λ, xcheck).
+        """
+        finite_ala = self.algebra.finite_lie_algebra
+        rs = finite_ala._root_system
+        index_set = list(rs.index_set())
+
+        rl_coroots = rs.root_lattice().simple_coroots()
+
+        labels = self.dynkin_labels()
+
+        result = QQ(0)
+        for i in index_set:
+            xi = QQ(x.coefficient(rl_coroots[i]))
+            li = labels.get(i, QQ(0))
+            result += xi * li
+
+        return result
 
     # =========================================================================
     # Conversion Methods
@@ -665,7 +722,9 @@ class AffineWeight:
 
     def finite_part_in_simple_root_basis(self) -> Any:
         """Return the finite part rewritten in the simple-root basis."""
-        return self.algebra.weight_to_root(self.finite_part_in_fundamental_weight_basis(), finite=True)
+        return self.algebra.weight_to_root(
+            self.finite_part_in_fundamental_weight_basis(), finite=True
+        )
 
     def to_fundamental_weight_basis(self) -> Tuple[Any, Any, Any]:
         """Return ``(finite_part, level, grade)`` with finite part in weight basis."""
@@ -1157,14 +1216,23 @@ class AffineWeight:
         # Get finite Dynkin labels from finite_part
         finite_mc = self.finite_part.monomial_coefficients()
 
-        # Get marks for computing λ₀
-        marks = self.algebra.marks
+        # Level is paired with the central element, so affine Dynkin labels use comarks.
+        comarks = self.algebra.comarks
 
-        # λ₀ = k - (λ, θ) = k - Σ a_i λ_i (where a_i are marks for i > 0)
+        # λ₀ = (k - Σ_{i>0} a_i^∨ λ_i) / a_0^∨.
         theta_dot_lambda = sum(
-            marks.get(i, 0) * finite_mc.get(i, 0) for i in marks.keys() if i != 0
+            comarks.get(i, 0) * finite_mc.get(i, 0) for i in comarks.keys() if i != 0
         )
-        lambda_0 = self.level - theta_dot_lambda
+        lambda_0 = (self.level - theta_dot_lambda) / QQ(comarks[0])
+        if getattr(self.algebra, "_debug_affine_weight", False):
+            print(
+                "[AffineWeight.dynkin_labels]",
+                f"finite={dict(finite_mc)}",
+                f"level={self.level}",
+                f"comarks={comarks}",
+                f"lambda_0={lambda_0}",
+                flush=True,
+            )
 
         # Build full Dynkin labels
         result = {0: lambda_0}

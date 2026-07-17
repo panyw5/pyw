@@ -28,7 +28,9 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import pickle
 import shutil
+import sqlite3
 import time
 import warnings
 from glob import glob
@@ -117,9 +119,7 @@ class KazhdanLusztigPolynomials:
         self._persistent_cache_auto_load = auto_load_cache
         self._persistent_cache_auto_save = auto_save_cache
         self._persistent_cache_auto_save_min_new_entries = max(1, int(auto_save_min_new_entries))
-        self._persistent_cache_loaded = False
-        self._persistent_cache_dirty = False
-        self._persistent_cache_new_entries = 0
+        self._db_conn: Optional[sqlite3.Connection] = None
 
         # In-memory cache
         self._P_cache: Dict[Tuple[Any, Any], Any] = {}
@@ -142,7 +142,7 @@ class KazhdanLusztigPolynomials:
         self._init_cython_backend()
         self.reset_profile_stats()
         if self._persistent_cache_enabled and self._persistent_cache_auto_load:
-            self.load_cache()
+            self._init_db()
 
     def reset_profile_stats(self) -> None:
         self._profile_stats = {
@@ -165,23 +165,123 @@ class KazhdanLusztigPolynomials:
 
     def _default_cache_filename(self) -> str:
         ct_str = str(self.cartan_type).replace(" ", "_")
-        return f"kl_cache_{ct_str}.json"
+        return f"kl_cache_{ct_str}.db"
+
+    # =========================================================================
+    # SQLite Persistent Cache
+    # =========================================================================
+
+    def _init_db(self) -> None:
+        """Initialize SQLite database with WAL mode and create tables."""
+        db_path = self._cache_dir / self._default_cache_filename()
+        self._db_path = db_path
+        self._db_conn = sqlite3.connect(str(db_path), isolation_level=None)
+        self._db_conn.execute("PRAGMA journal_mode=WAL")
+        self._db_conn.execute("PRAGMA synchronous=NORMAL")
+        self._db_conn.execute(
+            "CREATE TABLE IF NOT EXISTS q_at_one ("
+            " x_word TEXT NOT NULL,"
+            " y_word TEXT NOT NULL,"
+            " value BLOB NOT NULL,"
+            " PRIMARY KEY (x_word, y_word)"
+            ")"
+        )
+        # Try to migrate old JSON cache if it exists
+        self._migrate_from_json()
+        # Load existing entries into memory
+        self._load_from_db()
+
+    def _migrate_from_json(self) -> None:
+        """Migrate old JSON cache to SQLite, if the JSON file exists."""
+        json_filename = self._default_cache_filename().replace(".db", ".json")
+        json_path = self._cache_dir / json_filename
+        if not json_path.exists():
+            return
+        try:
+            with open(json_path) as f:
+                cache_data = json.load(f)
+            if cache_data.get("cache_version") != self.CACHE_VERSION_experiment:
+                return
+            if cache_data.get("cartan_type") != str(self.cartan_type):
+                return
+            entries = cache_data.get("Q_at_one_cache", {})
+            if not entries:
+                return
+            inserted = 0
+            for key_str, value in entries.items():
+                try:
+                    key = self._parse_cache_key_experiment(key_str)
+                    key_x = self._cache_key_x_str(key)
+                    key_y = self._cache_key_y_str(key)
+                    value_blob = pickle.dumps(value)
+                    self._db_conn.execute(
+                        "INSERT OR IGNORE INTO q_at_one (x_word, y_word, value) VALUES (?, ?, ?)",
+                        (key_x, key_y, value_blob),
+                    )
+                    inserted += 1
+                except Exception:
+                    continue
+            self._db_conn.commit()
+            bak_path = json_path.with_suffix(".json.migrated")
+            json_path.rename(bak_path)
+            print(
+                f"[kl_cache] Migrated {inserted} entries from {json_filename} → SQLite",
+                flush=True,
+            )
+        except Exception:
+            pass  # migration is best-effort
+
+    def _cache_key_x_str(self, cache_key: Tuple[Tuple[int, ...], Tuple[int, ...]]) -> str:
+        """Serialize the x-part of a cache key."""
+        return json.dumps(list(cache_key[0]))
+
+    def _cache_key_y_str(self, cache_key: Tuple[Tuple[int, ...], Tuple[int, ...]]) -> str:
+        """Serialize the y-part of a cache key."""
+        return json.dumps(list(cache_key[1]))
+
+    @staticmethod
+    def _cache_key_from_strs(x_str: str, y_str: str) -> Tuple[Tuple[int, ...], Tuple[int, ...]]:
+        return (tuple(json.loads(x_str)), tuple(json.loads(y_str)))
+
+    def _persist_q_at_one(
+        self, cache_key: Tuple[Tuple[int, ...], Tuple[int, ...]], value: Any
+    ) -> None:
+        """Immediately persist a Q(1) value to SQLite."""
+        if not self._persistent_cache_enabled or self._db_conn is None:
+            return
+        key_x = self._cache_key_x_str(cache_key)
+        key_y = self._cache_key_y_str(cache_key)
+        value_blob = pickle.dumps(value)
+        self._db_conn.execute(
+            "INSERT OR REPLACE INTO q_at_one (x_word, y_word, value) VALUES (?, ?, ?)",
+            (key_x, key_y, value_blob),
+        )
+
+    def _load_from_db(self) -> None:
+        """Load all Q(1) entries from SQLite into in-memory cache."""
+        if self._db_conn is None:
+            return
+        rows = self._db_conn.execute("SELECT x_word, y_word, value FROM q_at_one").fetchall()
+        for x_word, y_word, value_blob in rows:
+            try:
+                key = self._cache_key_from_strs(x_word, y_word)
+                self._Q_at_one_cache[key] = pickle.loads(value_blob)
+            except Exception:
+                continue
 
     def _mark_persistent_cache_dirty(self, new_entries: int = 1) -> None:
         if not self._persistent_cache_enabled:
             return
-        self._persistent_cache_dirty = True
-        self._persistent_cache_new_entries += max(0, int(new_entries))
-        self._maybe_autosave_cache()
+        # With SQLite, writes are immediate; this is a compatibility no-op.
+        # The actual persist happens in _persist_q_at_one.
 
     def _maybe_autosave_cache(self) -> None:
+        # With SQLite WAL, writes are immediate per entry.
+        # Periodically checkpoint the WAL for durability.
         if not self._persistent_cache_enabled:
             return
-        if not self._persistent_cache_auto_save:
-            return
-        if self._persistent_cache_new_entries < self._persistent_cache_auto_save_min_new_entries:
-            return
-        self.save_cache()
+        if self._db_conn is not None:
+            self._db_conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
 
     def _setup_backends(self) -> None:
         """Initialize computation backends."""
@@ -460,7 +560,7 @@ class KazhdanLusztigPolynomials:
                     result = _coerce_exact(result)
                     cache_key = (self._element_key(x), self._element_key(y))
                     self._Q_at_one_cache[cache_key] = result
-                    self._mark_persistent_cache_dirty()
+                    self._persist_q_at_one(cache_key, result)
                     if self._profiling_enabled:
                         self._profile_stats["Q_calls"] += 1
                         if q_started is not None:
@@ -491,7 +591,7 @@ class KazhdanLusztigPolynomials:
                     value_at_one = _coerce_exact(value_at_one)
                     if cache_key not in self._Q_at_one_cache:
                         self._Q_at_one_cache[cache_key] = value_at_one
-                        self._mark_persistent_cache_dirty()
+                        self._persist_q_at_one(cache_key, value_at_one)
                     else:
                         self._Q_at_one_cache[cache_key] = value_at_one
                     if self._profiling_enabled:
@@ -523,7 +623,7 @@ class KazhdanLusztigPolynomials:
         result = _coerce_exact(result)
         if cache_key not in self._Q_at_one_cache:
             self._Q_at_one_cache[cache_key] = result
-            self._mark_persistent_cache_dirty()
+            self._persist_q_at_one(cache_key, result)
         else:
             self._Q_at_one_cache[cache_key] = result
         if self._profiling_enabled:
@@ -1107,8 +1207,7 @@ class KazhdanLusztigPolynomials:
         """Enumerate right-coset elements present in a bounded candidate set."""
         if candidate_set is None:
             candidate_set = {
-                self._element_key(self._to_coxeter3(w)): self._to_coxeter3(w)
-                for w in candidates
+                self._element_key(self._to_coxeter3(w)): self._to_coxeter3(w) for w in candidates
             }
         result: Dict[Tuple[int, ...], Any] = {}
         base = self._to_coxeter3(w_min)
@@ -1194,29 +1293,9 @@ class KazhdanLusztigPolynomials:
         """
         if filename is None:
             filename = self._default_cache_filename()
-
-        if not force and not self._persistent_cache_dirty and self._persistent_cache_loaded:
-            return self._cache_dir / filename
-
         filepath = self._cache_dir / filename
-
-        # Convert cache to serializable format
-        cache_data = {
-            "cache_version": self.CACHE_VERSION_experiment,
-            "cartan_type": str(self.cartan_type),
-            "value_kind": "Q_at_one",
-            "Q_at_one_cache": {
-                self._cache_key_to_string_experiment(k): self._json_scalar_experiment(v)
-                for k, v in self._Q_at_one_cache.items()
-            },
-        }
-
-        with open(filepath, "w") as f:
-            json.dump(cache_data, f, indent=2)
-
-        self._persistent_cache_dirty = False
-        self._persistent_cache_new_entries = 0
-
+        if self._db_conn is not None:
+            self._db_conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         return filepath
 
     def load_cache(self, filename: Optional[str] = None) -> bool:
@@ -1233,38 +1312,10 @@ class KazhdanLusztigPolynomials:
         bool
             True if cache was loaded successfully
         """
-        if filename is None:
-            filename = self._default_cache_filename()
-
-        filepath = self._cache_dir / filename
-
-        if not filepath.exists():
-            return False
-
-        try:
-            with open(filepath) as f:
-                cache_data = json.load(f)
-
-            if cache_data.get("cache_version") != self.CACHE_VERSION_experiment:
-                return False
-
-            if cache_data.get("cartan_type") != str(self.cartan_type):
-                return False
-
-            if cache_data.get("value_kind") not in {"Q_at_one", "Q_tilde_at_one"}:
-                return False
-
-            for key_str, value in cache_data.get("Q_at_one_cache", {}).items():
-                self._Q_at_one_cache[self._parse_cache_key_experiment(key_str)] = (
-                    self._parse_json_scalar_experiment(value)
-                )
-
-            self._persistent_cache_loaded = True
-            self._persistent_cache_dirty = False
-            self._persistent_cache_new_entries = 0
+        if self._db_conn is not None and self._Q_at_one_cache:
             return True
-        except Exception:
-            return False
+        self._init_db()
+        return bool(self._Q_at_one_cache) if self._db_conn is not None else False
 
     def save_cache_experiment(self, filename: Optional[str] = None) -> Path:
         return self.save_cache(filename=filename, force=True)
@@ -1272,9 +1323,9 @@ class KazhdanLusztigPolynomials:
     def load_cache_experiment(self, filename: Optional[str] = None) -> bool:
         return self.load_cache(filename=filename)
 
-    # =========================================================================
+    # ════════════════════════════════════════════════════════════════════════
     # Internal Methods
-    # =========================================================================
+    # ════════════════════════════════════════════════════════════════════════
 
     def _to_coxeter3(self, w: Any, word_cache: Optional[Dict[int, tuple]] = None) -> Any:
         if hasattr(w, "parent") and w.parent() == self.weyl_group:
@@ -1291,8 +1342,9 @@ class KazhdanLusztigPolynomials:
         return w
 
     def _element_key(self, w: Any) -> Tuple[int, ...]:
-        """Get a hashable key for a Weyl group element."""
         return self._word_tuple(w)
+
+    # Legacy JSON serialization — kept for migration compatibility
 
     def _cache_key_to_string_experiment(
         self, cache_key: Tuple[Tuple[int, ...], Tuple[int, ...]]
@@ -1302,46 +1354,5 @@ class KazhdanLusztigPolynomials:
     def _parse_cache_key_experiment(self, key_str: str) -> Tuple[Tuple[int, ...], Tuple[int, ...]]:
         left, right = json.loads(key_str)
         return (tuple(left), tuple(right))
-
-    def _json_scalar_experiment(self, value: Any) -> Any:
-        if isinstance(value, bool) or value is None:
-            return value
-        if isinstance(value, int):
-            return value
-        if isinstance(value, float):
-            return int(value) if value.is_integer() else str(value)
-        if isinstance(value, str):
-            return value
-        if hasattr(value, "numerator") and hasattr(value, "denominator"):
-            try:
-                numerator = (
-                    int(value.numerator()) if callable(value.numerator) else int(value.numerator)
-                )
-                denominator = (
-                    int(value.denominator())
-                    if callable(value.denominator)
-                    else int(value.denominator)
-                )
-                if denominator != 0:
-                    return {"__qq__": [numerator, denominator]}
-            except Exception:
-                pass
-        if hasattr(value, "is_integer") and value.is_integer():
-            return int(value)
-        try:
-            if hasattr(value, "is_integer") and not value.is_integer():
-                raise ValueError
-            return int(value)
-        except (TypeError, ValueError):
-            return str(value)
-
-    def _parse_json_scalar_experiment(self, value: Any) -> Any:
-        if isinstance(value, dict) and "__qq__" in value:
-            payload = value["__qq__"]
-            if isinstance(payload, list) and len(payload) == 2:
-                return QQ(payload[0]) / QQ(payload[1])
-        if isinstance(value, float):
-            return int(value) if value.is_integer() else QQ(value)
-        return value
 
     CACHE_VERSION_experiment = 1
