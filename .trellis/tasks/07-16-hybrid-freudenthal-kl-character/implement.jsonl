@@ -1,7 +1,0 @@
-{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
-{"file": ".trellis/spec/definitions/canonical-representations.md", "reason": "Define canonical affine weights, Weyl representatives, and exact cache keys"}
-{"file": ".trellis/spec/definitions/naming-and-notation.md", "reason": "Keep null, Freudenthal-degenerate, orbit, and KL numerator weights distinct"}
-{"file": ".trellis/spec/implementation/algorithm-patterns.md", "reason": "Implement bounded Weyl indexing, root-cone filtering, and hybrid recurrence"}
-{"file": ".trellis/spec/implementation/data-representations.md", "reason": "Design bounded orbit and multiplicity cache structures"}
-{"file": ".trellis/spec/implementation/module-boundaries.md", "reason": "Keep hybrid character logic separated from generic KL polynomial code"}
-{"file": ".trellis/spec/implementation/performance-and-caching.md", "reason": "Enforce lazy Qtilde computation and benchmark targets"}
