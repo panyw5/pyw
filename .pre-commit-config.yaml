@@ -1,0 +1,8 @@
+repos:
+  - repo: local
+    hooks:
+      - id: python-syntax
+        name: Check Python syntax
+        language: system
+        entry: python3 -c 'import ast, pathlib, sys; [ast.parse(pathlib.Path(p).read_bytes(), filename=p) for p in sys.argv[1:]]'
+        types: [python]

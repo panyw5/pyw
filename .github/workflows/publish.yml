@@ -1,0 +1,98 @@
+name: Publish Python package (OIDC)
+
+on:
+  workflow_dispatch:
+    inputs:
+      repository:
+        description: Destination (configure its Trusted Publisher and Environment first)
+        required: true
+        default: testpypi
+        type: choice
+        options:
+          - testpypi
+          - pypi
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-${{ inputs.repository }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # Publish only the reviewed main branch, never a pull request or other ref.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build sdist and wheel from sdist
+        run: |
+          python -m pip install build twine
+          python -m build
+          python -m twine check --strict dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: distributions
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  validate:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: distributions
+          path: dist/
+      - name: Validate installed wheel in SageMath 10.4
+        # No credentials or OIDC permissions are available to this container.
+        run: |
+          docker run --rm --platform linux/amd64 --entrypoint bash \
+            -v "$GITHUB_WORKSPACE:/work:ro" \
+            sagemath/sagemath:10.4 -euo pipefail -c '
+              sage -python -m venv --system-site-packages /tmp/release-venv
+              /tmp/release-venv/bin/python -m pip --isolated install --no-user pytest pytest-cov
+              /tmp/release-venv/bin/python -m pip --isolated install --no-user --no-deps /work/dist/*.whl
+              cd /tmp
+              /tmp/release-venv/bin/python -I /work/scripts/verify_release.py \
+                --project /work --dist /work/dist --run-tests
+            '
+
+  publish:
+    needs: [build, validate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: ${{ inputs.repository }}
+      url: ${{ inputs.repository == 'testpypi' && 'https://test.pypi.org/p/pyw-algebra' || 'https://pypi.org/p/pyw-algebra' }}
+    permissions:
+      id-token: write
+    steps:
+      # Do not check out or execute project source in the credential-bearing job.
+      - uses: actions/download-artifact@v4
+        with:
+          name: distributions
+          path: dist/
+      - name: Publish to TestPyPI using OIDC
+        if: inputs.repository == 'testpypi'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          attestations: true
+      - name: Publish to PyPI using OIDC
+        if: inputs.repository == 'pypi'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          attestations: true

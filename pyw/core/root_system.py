@@ -174,17 +174,25 @@ class AffineRootSystem:
     @property
     def coroots(self) -> List[Any]:
         """
-        Get all coroots of the root system.
+        Get all positive and negative coroots of a finite root system.
 
         Returns:
             List of coroot vectors
 
         Notes:
-            Coroots live in the dual space and satisfy the pairing
-            α_j(H_i) = C_ij where C_ij is the Cartan matrix
+            Affine coroot systems are infinite and cannot be returned as a
+            finite list. Use simple_coroots for their generating basis.
+
+        Raises:
+            NotImplementedError: If the root system is not finite
         """
         if self._coroots is None:
-            self._coroots = list(self.root_system.coroot_lattice().basis())
+            if not self.root_system.cartan_type().is_finite():
+                raise NotImplementedError(
+                    "All coroots cannot be enumerated as a finite list for non-finite types; "
+                    "use simple_coroots for the generating basis"
+                )
+            self._coroots = list(self.root_system.coroot_lattice().roots())
         return self._coroots
 
     @property

@@ -1,8 +1,9 @@
 """
-pyw - Kac-Moody & W-Algebra Computation Library
+pyw - Root System & Affine Lie Algebra Computation Library
 
-A Python library for computing with Kac-Moody algebras, affine Lie algebras,
-and W-algebras, with special support for fractional level/weights.
+A Python library for computing with root systems and affine Lie algebras,
+with special support for fractional levels/weights. W-algebra constructions
+are a future goal, not a currently available module.
 
 Based on SageMath's root system and Lie algebra implementations.
 """

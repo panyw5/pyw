@@ -3,11 +3,11 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pyw"
+name = "pyw-algebra"
 version = "0.1.0"
-description = "Kac-Moody & W-Algebra Computation Library"
+description = "SageMath-based root system and affine Lie algebra computations"
 readme = "README.md"
-license = {text = "MIT"}
+license = {file = "LICENSE"}
 authors = [
     {name = "pyw contributors"}
 ]
@@ -55,13 +55,15 @@ jupyter = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourusername/pyw"
-Documentation = "https://pyw.readthedocs.io"
-Repository = "https://github.com/yourusername/pyw"
-Issues = "https://github.com/yourusername/pyw/issues"
+Homepage = "https://github.com/panyw5/pyw"
+Documentation = "https://github.com/panyw5/pyw/tree/main/docs"
+Repository = "https://github.com/panyw5/pyw"
+Issues = "https://github.com/panyw5/pyw/issues"
 
-[tool.setuptools]
-packages = ["pyw"]
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pyw", "pyw.*"]
+exclude = ["pyw.tests", "pyw.tests.*"]
 
 [tool.black]
 line-length = 100

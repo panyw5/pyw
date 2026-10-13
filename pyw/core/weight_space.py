@@ -9,7 +9,7 @@ the integer weight lattice.
 from fractions import Fraction
 from typing import TYPE_CHECKING, Dict, Union
 
-from sage.all import Integer, RootSystem, ZZ
+from sage.all import QQ, ZZ, Integer, Rational, RootSystem
 
 if TYPE_CHECKING:
     from .affine_weight import AffineWeight
@@ -24,11 +24,11 @@ def is_integral_affine_weight(weight: "AffineWeight") -> bool:
 
 class FractionalWeightSpace:
     """
-    A wrapper around SageMath's weight space with extended=True to support fractional weights.
+    A wrapper around SageMath's rational weight space.
 
     This class allows creation and manipulation of weights with fractional coefficients,
-    using the extended weight space (weight_space(extended=True)) rather than the
-    restricted weight lattice (weight_lattice()).
+    using a weight space over QQ rather than the restricted integer weight
+    lattice. Affine types additionally use extended=True for the delta direction.
 
     The extended weight space supports weights of the form:
         λ = Σ (p_i/q_i) Λ_i
@@ -77,9 +77,15 @@ class FractionalWeightSpace:
 
         self.root_system: RootSystem = RootSystem(cartan_type)
 
-        # Use weight_space(extended=True) to support fractional coefficients,
-        # not weight_lattice() which is restricted to integer weights
-        self.weight_space = self.root_system.weight_space(extended=True)
+        # QQ provides fractional coefficients; only affine spaces have a delta direction.
+        self.weight_space = self.root_system.weight_space(
+            QQ, extended=self.root_system.cartan_type().is_affine()
+        )
+
+    @property
+    def rank(self) -> int:
+        """Number of Dynkin nodes (including node 0 for affine types)."""
+        return len(self.weight_space.index_set())
 
     @property
     def fundamental_weights(self) -> Dict[int, object]:
@@ -99,9 +105,9 @@ class FractionalWeightSpace:
         >>> Lambda[1]  # First fundamental weight
         >>> Lambda[2]  # Second fundamental weight
         """
-        Lambda = self.weight_space.fundamental_weights()
+        lambdas = self.weight_space.fundamental_weights()
 
-        return {i: Lambda[i] for i in range(1, self.root_system.rank() + 1)}
+        return {i: lambdas[i] for i in self.weight_space.index_set()}
 
     def create_fractional_weight(
         self, coefficients: Dict[int, Union[Fraction, tuple[int, int], int, float]]
@@ -119,7 +125,7 @@ class FractionalWeightSpace:
         ----------
         coefficients : dict
             Dictionary mapping weight indices to their coefficients.
-            Indices should be 1-based (e.g., {1: Fraction(1, 2), 2: (3, 4)})
+            Use Dynkin node indices (finite: 1,...,r; affine: 0,...,r).
 
         Returns
         -------
@@ -142,18 +148,22 @@ class FractionalWeightSpace:
         >>> # Using integers
         >>> w3 = W.create_fractional_weight({1: 1, 2: 2})
         """
-        Lambda = self.fundamental_weights
+        lambdas = self.fundamental_weights
         weight = self.weight_space.zero()
 
         for idx, coeff in coefficients.items():
+            if idx not in lambdas:
+                raise ValueError(f"Invalid fundamental weight index: {idx}")
             if isinstance(coeff, Fraction):
                 frac = coeff
             elif isinstance(coeff, tuple) and len(coeff) == 2:
                 frac = Fraction(coeff[0], coeff[1])
-            elif isinstance(coeff, int):
-                frac = Fraction(coeff, 1)
+            elif isinstance(coeff, (int, Integer, Rational)):
+                rational = QQ(coeff)
+                frac = Fraction(int(rational.numerator()), int(rational.denominator()))
             elif isinstance(coeff, float):
-                frac = Fraction(coeff).limit_denominator()
+                # Preserve the supplied binary float exactly; use tuples for p/q.
+                frac = Fraction(coeff)
             else:
                 raise ValueError(
                     f"Invalid coefficient format: {coeff}. "
@@ -162,7 +172,7 @@ class FractionalWeightSpace:
 
             numerator = Integer(frac.numerator)
             denominator = Integer(frac.denominator)
-            weight += (numerator / denominator) * Lambda[idx]
+            weight += (numerator / denominator) * lambdas[idx]
 
         return weight
 

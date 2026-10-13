@@ -2,10 +2,10 @@
 Test suite for pyw.core.weight_space module
 """
 
-import pytest
 from fractions import Fraction
 
-from sage.all import RootSystem
+import pytest
+from sage.all import QQ, Integer
 
 from pyw.core.weight_space import FractionalWeightSpace
 
@@ -70,7 +70,7 @@ class TestFractionalWeightSpace:
         """Test rank property."""
         ws = FractionalWeightSpace(["A", 2, 1])
         # A2 affine has rank 3 (including the affine node)
-        assert ws.rank >= 2
+        assert ws.rank == 3
 
     def test_weight_space_property(self):
         """Test weight_space property."""
@@ -95,3 +95,16 @@ class TestFractionalWeightSpace:
         """Test with finite (non-affine) type."""
         ws = FractionalWeightSpace(["A", 2])
         assert ws.cartan_type == ["A", 2]
+        assert ws.rank == 2
+        assert set(ws.fundamental_weights) == {1, 2}
+
+    def test_exact_coefficients(self):
+        ws = FractionalWeightSpace(["A", 2, 1])
+        for coefficient in (Fraction(1, 3), (1, 3), QQ((1, 3))):
+            assert ws.create_fractional_weight({0: coefficient}).coefficient(0) == QQ((1, 3))
+        assert ws.create_fractional_weight({0: Integer(2)}).coefficient(0) == 2
+
+    def test_invalid_node(self):
+        ws = FractionalWeightSpace(["A", 2])
+        with pytest.raises(ValueError, match="index"):
+            ws.create_fractional_weight({0: 1})

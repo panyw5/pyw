@@ -6,9 +6,10 @@ of the form k = -h^∨ + p/u, where h^∨ is the dual Coxeter number and p, u ar
 coprime positive integers satisfying specific constraints.
 """
 
-from sage.all import RootSystem, Integer, Rational
 from fractions import Fraction
 from typing import Union
+
+from sage.all import QQ, Integer, RootSystem
 
 
 def _to_python_int(n: Integer) -> int:
@@ -61,6 +62,8 @@ class FractionalLevel:
             ValueError: If the constraints (p, u) = 1, (u, ℓ) = 1, or p ≥ h^∨ fail
         """
         self.cartan_type = cartan_type
+        if QQ(p).denominator() != 1 or QQ(u).denominator() != 1:
+            raise ValueError("p and u must be integers")
         self.p = Integer(p)
         self.u = Integer(u)
         self._h_vee: Integer | None = None
@@ -82,16 +85,13 @@ class FractionalLevel:
         from math import gcd as python_gcd
 
         # Get dual Coxeter number
-        R = RootSystem(self.cartan_type)
-        ct = R.cartan_type()
-        # Try different methods for dual Coxeter number
-        if hasattr(ct, "dual_coxeter_number"):
-            self._h_vee = Integer(ct.dual_coxeter_number())
-        elif hasattr(ct, "coxiceter_number"):
-            self._h_vee = Integer(ct.coxeter_number())
-        else:
-            # Use a lookup table for common types
-            self._h_vee = self.lookup_dual_coxeter_number()
+        root_system = RootSystem(self.cartan_type)
+        ct = root_system.cartan_type()
+        if ct.is_affine():
+            if not ct.is_untwisted_affine():
+                raise NotImplementedError("Only finite and untwisted affine types are supported")
+            ct = ct.classical()
+        self._h_vee = Integer(ct.dual_coxeter_number())
 
         # Get lacety
         self._lacety = self.compute_lacety()
@@ -142,77 +142,24 @@ class FractionalLevel:
 
     def lookup_dual_coxeter_number(self) -> Integer:
         """
-        Fallback method to get dual Coxeter number using a lookup table.
+        Return the dual Coxeter number from SageMath's finite Cartan type.
 
-        This is used when the SageMath CartanType object doesn't have
-        the dual_coxeter_number method.
+        The historical helper name is retained for compatibility; no
+        hard-coded lookup table is used.
 
         Returns:
             Integer: The dual Coxeter number h^∨
 
         Raises:
-            ValueError: If the Cartan type is not in the lookup table
+            NotImplementedError: If the Cartan type is twisted affine
         """
-        # Dual Coxeter numbers for finite simple Lie algebras
-        # Format: (type, rank) -> h^∨
-        dual_coxeter_numbers = {
-            ("A", 1): 2,
-            ("A", 2): 3,
-            ("A", 3): 4,
-            ("A", 4): 5,
-            ("A", 5): 6,
-            ("A", 6): 7,
-            ("A", 7): 8,
-            ("A", 8): 9,
-            ("A", 9): 10,
-            ("A", 10): 11,
-            ("B", 1): 2,
-            ("B", 2): 3,
-            ("B", 3): 4,
-            ("B", 4): 5,
-            ("B", 5): 6,
-            ("B", 6): 7,
-            ("B", 7): 8,
-            ("B", 8): 9,
-            ("B", 9): 10,
-            ("B", 10): 11,
-            ("C", 1): 2,
-            ("C", 2): 3,
-            ("C", 3): 4,
-            ("C", 4): 5,
-            ("C", 5): 6,
-            ("C", 6): 7,
-            ("C", 7): 8,
-            ("C", 8): 9,
-            ("C", 9): 10,
-            ("C", 10): 11,
-            ("D", 4): 4,
-            ("D", 5): 5,
-            ("D", 6): 6,
-            ("D", 7): 7,
-            ("D", 8): 8,
-            ("D", 9): 9,
-            ("D", 10): 10,
-            ("D", 11): 11,
-            ("D", 12): 12,
-            ("E", 6): 6,
-            ("E", 7): 8,
-            ("E", 8): 12,
-            ("F", 4): 6,
-            ("G", 2): 4,
-        }
-
-        ct_letter = self.cartan_type[0]
-        ct_rank = self.cartan_type[1]
-
-        key = (ct_letter, ct_rank)
-        if key in dual_coxeter_numbers:
-            return Integer(dual_coxeter_numbers[key])
-
-        raise ValueError(
-            f"Dual Coxeter number not found for Cartan type {self.cartan_type}. "
-            f"Please add ({ct_letter}, {ct_rank}) to the lookup table."
-        )
+        # Retained public helper; Sage is authoritative, not the historical table.
+        ct = RootSystem(self.cartan_type).cartan_type()
+        if ct.is_affine():
+            if not ct.is_untwisted_affine():
+                raise NotImplementedError("Only finite and untwisted affine types are supported")
+            ct = ct.classical()
+        return Integer(ct.dual_coxeter_number())
 
     @property
     def level(self) -> Fraction:
@@ -300,7 +247,7 @@ class FractionalLevel:
         Returns:
             str: String showing the level value
         """
-        return f"k = {self.level} (h^∨={self.h_vee}, p={self.p}, u={self.u})"
+        return f"k = {self.level} (cartan_type={self.cartan_type}, h^∨={self.h_vee}, p={self.p}, u={self.u})"
 
 
 def to_python_int(sage_int: Integer) -> int:

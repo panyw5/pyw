@@ -80,7 +80,23 @@ class TestAffineRootSystem:
         rs = AffineRootSystem(["A", 2])
         coroots = rs.coroots
         # Should have same number as roots
-        assert len(coroots) >= 6
+        assert len(coroots) == 6
+        assert set(coroots) == set(rs.root_system.coroot_lattice().roots())
+        assert rs.coroots is coroots
+
+    @pytest.mark.parametrize("cartan_type,count", [(["B", 2], 8), (["G", 2], 12)])
+    def test_all_coroots_nonsimply_laced(self, cartan_type, count):
+        rs = AffineRootSystem(cartan_type)
+        assert len(rs.coroots) == count
+        assert set(rs.coroots) == set(rs.root_system.coroot_lattice().roots())
+        assert all(-b in rs.coroots for b in rs.coroots)
+        assert set(rs.simple_coroots).issubset(rs.coroots)
+
+    def test_affine_coroots_are_not_a_finite_list(self):
+        rs = AffineRootSystem(["A", 2, 1])
+        with pytest.raises(NotImplementedError, match="use simple_coroots"):
+            _ = rs.coroots
+        assert len(rs.simple_coroots) == 3
 
     def test_root_system_property(self):
         """Test root_system property."""
